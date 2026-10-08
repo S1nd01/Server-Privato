@@ -1,0 +1,11 @@
+# Caricato in automatico da `docker compose` insieme a compose.yaml.
+# Aggiunte specifiche per Immich.
+services:
+  immich-server:
+    volumes:
+      # Libreria esterna: Immich legge le foto dove sono, in SOLA LETTURA, senza copiarle.
+      # In Immich aggiungi poi /mnt/photos come percorso di importazione (vedi docs/immich.md).
+      - ${PHOTOS_DIR:-${DATA_DIR}/photos}:/mnt/photos:ro
+
+  immich-postgres:
+    shm_size: 128mb   # come nel compose ufficiale di Immich

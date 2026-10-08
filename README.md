@@ -4,7 +4,7 @@ Pannello minimale (frontend + backend/API) per gestire un home server in Docker:
 
 | Servizio | Cosa fa | Dettagli |
 |---|---|---|
-| Immich | Backup e galleria foto | porta 2283 |
+| Immich | Backup e galleria foto | [docs/immich.md](docs/immich.md) |
 | Vaultwarden | Password manager (compatibile Bitwarden), dietro Caddy/HTTPS | [docs/vaultwarden.md](docs/vaultwarden.md) |
 | WireGuard | VPN per l'accesso da fuori casa | [docs/wireguard.md](docs/wireguard.md) |
 | SteamCMD | Download remoto di giochi Steam | [docs/steamcmd.md](docs/steamcmd.md) |
