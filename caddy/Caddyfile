@@ -1,0 +1,15 @@
+# Reverse proxy HTTPS davanti a Vaultwarden.
+# `tls internal` = certificato firmato dalla CA locale di Caddy (ottimo per LAN/VPN).
+# Per un dominio pubblico con Let's Encrypt: togli `tls internal` e pubblica anche le porte 80/443.
+{$VW_HOST} {
+	tls internal
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+
+	reverse_proxy vaultwarden:80
+}

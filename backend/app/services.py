@@ -1,7 +1,7 @@
-"""Catalogo dei servizi gestiti dal pannello.
+"""Catalogo dei servizi Docker gestiti dal pannello.
 
-Ogni servizio e' un gruppo di container Docker (nomi definiti in compose.yaml).
-Per aggiungere un servizio: aggiungi una voce qui e il relativo blocco nel compose.
+Ogni servizio e' un gruppo di container (nomi definiti in compose.yaml).
+SteamCMD non e' qui: non e' un servizio sempre attivo ma un download a richiesta (vedi steam.py).
 """
 
 SERVICES = {
@@ -14,24 +14,21 @@ SERVICES = {
             "immich_redis",
             "immich_postgres",
         ],
+        "scheme": "http",
         "url_port": 2283,
     },
     "vaultwarden": {
         "name": "Vaultwarden",
-        "description": "Password manager self-hosted (compatibile Bitwarden)",
-        "containers": ["vaultwarden"],
-        "url_port": 8080,
+        "description": "Password manager self-hosted (dietro Caddy, solo HTTPS)",
+        "containers": ["vaultwarden", "caddy"],
+        "scheme": "https",
+        "url_port": 8443,
     },
     "wireguard": {
         "name": "WireGuard",
-        "description": "VPN / tunneling",
+        "description": "VPN per raggiungere il server da fuori casa",
         "containers": ["wireguard"],
+        "scheme": "http",
         "url_port": None,
-    },
-    "steam": {
-        "name": "Steam",
-        "description": "Download remoto giochi (linuxserver/steam)",
-        "containers": ["steam"],
-        "url_port": 3000,
     },
 }

@@ -5,19 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Homeserver</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
+    h2 { margin-top: 2rem; font-size: 1.1rem; color: #bbb; text-transform: uppercase; letter-spacing: .05em; }
     .card { border: 1px solid #333; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
     .row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
     .badge { padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; background: #444; }
-    .running { background: #1f7a3a; } .partial { background: #a06b00; } .stopped, .not_created { background: #7a1f1f; }
+    .running, .exited0 { background: #1f7a3a; } .partial { background: #a06b00; }
+    .stopped, .not_created, .failed { background: #7a1f1f; }
     button { background: #2a2a2a; color: #eee; border: 1px solid #555; border-radius: 6px; padding: .4rem .8rem; cursor: pointer; }
     button:hover { background: #3a3a3a; }
-    small { color: #999; }
+    input, select { background: #1c1c1c; color: #eee; border: 1px solid #555; border-radius: 6px; padding: .4rem .6rem; }
+    form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    pre { background: #000; padding: .6rem; border-radius: 6px; max-height: 14rem; overflow: auto; font-size: .8rem; white-space: pre-wrap; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    td, th { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid #2a2a2a; }
+    small, .muted { color: #999; }
+    a { color: #8ab4f8; }
   </style>
 </head>
 <body>
   <h1>Homeserver</h1>
+
+  <h2>Servizi</h2>
   <div id="list">Caricamento…</div>
+
+  <h2>Steam (SteamCMD)</h2>
+  <div class="card">
+    <form id="steam-form">
+      <input id="appid" type="number" min="1" placeholder="AppID (es. 440)" required style="width:10rem">
+      <select id="platform"><option>windows</option><option>linux</option><option>macos</option></select>
+      <input id="login" value="anonymous" title="anonymous oppure il tuo username Steam (login già fatto)" style="width:9rem">
+      <button type="submit">Scarica</button>
+    </form>
+    <p class="muted"><small>L'AppID è nell'URL dello store: store.steampowered.com/app/<b>440</b>/…  I giochi a pagamento richiedono il tuo account (vedi docs/steamcmd.md).</small></p>
+  </div>
+  <div id="downloads"></div>
+  <div class="card"><strong>Libreria</strong><div id="library" class="muted">…</div></div>
+
+  <h2>WireGuard</h2>
+  <div class="card" id="wg">…</div>
+
   <script src="app.js"></script>
 </body>
 </html>

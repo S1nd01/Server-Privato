@@ -1,20 +1,21 @@
-import docker
-from docker.errors import DockerException, NotFound
-from fastapi import FastAPI, HTTPException
+from docker.errors import NotFound
+from fastapi import Depends, FastAPI, HTTPException
 
+from . import steam, wireguard
+from .auth import require_token
+from .dockerutil import get_client as _client
 from .services import SERVICES
 
-app = FastAPI(title="Homeserver API", version="0.1.0")
+app = FastAPI(
+    title="Homeserver API",
+    version="0.2.0",
+    dependencies=[Depends(require_token)],
+)
+app.include_router(steam.router)
+app.include_router(wireguard.router)
 
 
-def _client() -> docker.DockerClient:
-    try:
-        return docker.from_env()
-    except DockerException as exc:
-        raise HTTPException(503, f"Docker non raggiungibile: {exc}")
-
-
-def _container_state(client: docker.DockerClient, name: str) -> dict:
+def _container_state(client, name: str) -> dict:
     try:
         c = client.containers.get(name)
         return {"name": name, "status": c.status}
@@ -22,7 +23,7 @@ def _container_state(client: docker.DockerClient, name: str) -> dict:
         return {"name": name, "status": "not_created"}
 
 
-def _service_status(client: docker.DockerClient, sid: str) -> dict:
+def _service_status(client, sid: str) -> dict:
     meta = SERVICES[sid]
     containers = [_container_state(client, n) for n in meta["containers"]]
     statuses = {c["status"] for c in containers}
@@ -38,6 +39,7 @@ def _service_status(client: docker.DockerClient, sid: str) -> dict:
         "id": sid,
         "name": meta["name"],
         "description": meta["description"],
+        "scheme": meta["scheme"],
         "url_port": meta["url_port"],
         "status": overall,
         "containers": containers,

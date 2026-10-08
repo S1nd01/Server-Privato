@@ -17,8 +17,18 @@ services:
   backend:
     build: ./backend
     container_name: hs_backend
+    environment:
+      API_TOKEN: ${API_TOKEN:-}
+      STEAMCMD_IMAGE: ${STEAMCMD_IMAGE:-steamcmd/steamcmd:latest}
+      # percorsi HOST (per i container figli lanciati dal backend)
+      HOST_STEAM_CONFIG_DIR: ${DATA_DIR}/steamcmd
+      HOST_STEAM_GAMES_DIR: ${STEAM_GAMES_DIR}
+      WG_EXPOSE_PEERS: ${WG_EXPOSE_PEERS:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR}/steamcmd:/data/steamcmd
+      - ${STEAM_GAMES_DIR}:/data/games
+      - ${DATA_DIR}/wireguard:/data/wireguard:ro
     restart: unless-stopped
 
   # ---------- Immich ----------
@@ -65,17 +75,34 @@ services:
       - ${DATA_DIR}/immich/postgres:/var/lib/postgresql/data
     restart: unless-stopped
 
-  # ---------- Vaultwarden ----------
+  # ---------- Vaultwarden (nessuna porta pubblicata: si passa solo da Caddy) ----------
   vaultwarden:
     image: vaultwarden/server:latest
     container_name: vaultwarden
     environment:
-      DOMAIN: "http://localhost:8080"
-      SIGNUPS_ALLOWED: "true"   # metti false dopo aver creato il tuo account
+      TZ: ${TZ}
+      DOMAIN: https://${VW_HOST:-localhost}:${VW_PORT:-8443}
+      SIGNUPS_ALLOWED: ${VW_SIGNUPS:-true}
+      INVITATIONS_ALLOWED: "false"
+      SHOW_PASSWORD_HINT: "false"
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
       - ${DATA_DIR}/vaultwarden:/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    environment:
+      VW_HOST: ${VW_HOST:-localhost}
     ports:
-      - "8080:80"
+      - "${VW_PORT:-8443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data   # contiene la CA locale: non cancellarlo o dovrai rifare la fiducia sui dispositivi
+      - caddy-config:/config
+    depends_on:
+      - vaultwarden
     restart: unless-stopped
 
   # ---------- WireGuard ----------
@@ -91,7 +118,11 @@ services:
       TZ: ${TZ}
       SERVERURL: ${WG_HOST}
       SERVERPORT: 51820
-      PEERS: ${WG_PEERS:-2}
+      PEERS: ${WG_PEERS:-telefono,portatile}
+      PEERDNS: auto
+      INTERNAL_SUBNET: 10.13.13.0
+      ALLOWEDIPS: ${WG_ALLOWEDIPS:-10.13.13.0/24}
+      LOG_CONFS: "false"   # non stampare i QR (con le chiavi private) nei log
     volumes:
       - ${DATA_DIR}/wireguard:/config
       - /lib/modules:/lib/modules:ro
@@ -101,25 +132,18 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
     restart: unless-stopped
 
-  # ---------- Steam (linuxserver/steam) ----------
-  steam:
-    image: lscr.io/linuxserver/steam:latest
-    container_name: steam
-    security_opt:
-      - seccomp:unconfined
-    environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      TZ: ${TZ}
+  # ---------- SteamCMD: shell interattiva per il PRIMO login (non parte con `up`) ----------
+  #   docker compose run --rm steamcmd +login IL_TUO_USERNAME
+  steamcmd:
+    image: ${STEAMCMD_IMAGE:-steamcmd/steamcmd:latest}
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
     volumes:
-      - ${DATA_DIR}/steam:/config
-    devices:
-      - /dev/dri:/dev/dri
-    ports:
-      - "3000:3000"
-      - "3001:3001"
-    shm_size: "1gb"
-    restart: unless-stopped
+      - ${DATA_DIR}/steamcmd:/root/.local/share/Steam
+      - ${STEAM_GAMES_DIR}:/data/games
 
 volumes:
   immich-model-cache:
+  caddy-data:
+  caddy-config:
