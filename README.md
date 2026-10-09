@@ -14,7 +14,7 @@ homeserver/
 ├── backend/     FastAPI: servizi Docker, download SteamCMD, stato WireGuard
 ├── frontend/    HTML+JS statico servito da nginx (proxy /api -> backend)
 ├── caddy/       Caddyfile (HTTPS per Vaultwarden)
-├── scripts/     backup-vaultwarden.sh
+├── scripts/     gen-api-token.sh, backup-vaultwarden.sh (cifrato)
 ├── docs/        guide per servizio
 ├── compose.yaml
 └── .env.example
@@ -46,12 +46,14 @@ Avvio parziale: `docker compose up -d --build frontend backend caddy vaultwarden
 | GET | `/api/wireguard/status` · `/api/wireguard/peers` | stato VPN e peer |
 | GET | `/api/wireguard/peers/{nome}/qr` · `/conf` | solo con `WG_EXPOSE_PEERS=true` |
 
-Se `API_TOKEN` è impostato, ogni chiamata (tranne health) richiede l'header `X-API-Token`.
+Se `API_TOKEN_HASH` è impostato, ogni chiamata (tranne health) richiede l'header `X-API-Token`.
+Generalo con `./scripts/gen-api-token.sh`. Dettagli in [docs/security.md](docs/security.md).
 
 ## Sicurezza
 
-- Il backend monta `/var/run/docker.sock`: chi controlla l'API controlla la macchina. Imposta `API_TOKEN`,
-  tienilo solo in LAN/VPN e **non** esporre mai la porta 8088 su Internet.
+- Il backend monta `/var/run/docker.sock`: chi controlla l'API controlla la macchina. La porta 8088 è
+  pubblicata **solo su 127.0.0.1**, il token è obbligatorio (`gen-api-token.sh`) e non va mai esposta su Internet.
+- I backup di Vaultwarden sono cifrati AES-256 (`BACKUP_PASSPHRASE_FILE`).
 - Sul router apri solo `51820/udp` (WireGuard).
 
 ## Passaggio al Raspberry

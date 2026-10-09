@@ -80,9 +80,21 @@ Poi `docker compose up -d vaultwarden` e apri `https://<VW_HOST>:8443/admin`.
 
 ## Backup (non saltarlo)
 
-`scripts/backup-vaultwarden.sh` crea un archivio `vaultwarden-AAAAMMGG-hhmmss.tar.gz` con DB, allegati e chiavi RSA,
-ed elimina le copie oltre le ultime 14. Prima prova il backup online di Vaultwarden; se non è disponibile ferma
-il container per qualche secondo.
+`scripts/backup-vaultwarden.sh` crea un archivio **cifrato AES-256** `vaultwarden-AAAAMMGG-hhmmss.tar.gz.gpg`
+con DB, allegati e chiavi RSA, ed elimina le copie oltre le ultime 14. Prima prova il backup online di
+Vaultwarden; se non è disponibile ferma il container per qualche secondo. Dopo averlo scritto verifica che
+si possa decifrare e leggere.
+
+La passphrase sta in un file (non nella riga di comando, dove si vedrebbe con `ps`). Prima volta:
+
+```bash
+umask 077; openssl rand -base64 32 > ~/.vw-backup-pass
+# in .env:  BACKUP_PASSPHRASE_FILE=/home/<utente>/.vw-backup-pass
+```
+
+**Copia la passphrase anche fuori dal server** (es. nel tuo password manager *cloud*, non in questo Vaultwarden):
+senza di lei i backup non si aprono più. Lo script si rifiuta di creare backup in chiaro, di usare una passphrase
+sotto i 20 caratteri o un file con permessi diversi da 600.
 
 ```bash
 BACKUP_DIR=/mnt/ssd/backups ./scripts/backup-vaultwarden.sh
@@ -91,14 +103,15 @@ BACKUP_DIR=/mnt/ssd/backups ./scripts/backup-vaultwarden.sh
 ```
 
 Regola 3-2-1: una copia sullo stesso disco non basta. Porta periodicamente l'archivio **fuori dal server**
-(altro disco o PC). Il contenuto è cifrato dalla tua password master, ma contiene anche le chiavi del server.
+(altro disco o PC).
 
 **Ripristino**:
 
 ```bash
 docker compose stop vaultwarden
 rm -rf "$DATA_DIR/vaultwarden"/*            # solo se vuoi sostituire tutto
-tar -xzf vaultwarden-XXXX.tar.gz -C "$DATA_DIR/vaultwarden"
+gpg --batch --pinentry-mode loopback --passphrase-file ~/.vw-backup-pass -d vaultwarden-XXXX.tar.gz.gpg \
+  | tar -xz -C "$DATA_DIR/vaultwarden"
 docker compose start vaultwarden
 ```
 
