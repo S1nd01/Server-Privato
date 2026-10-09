@@ -34,23 +34,61 @@ function ago(epoch) {
 // ---- API (con token opzionale) ----
 function getToken() { try { return sessionStorage.getItem("hs_token") || ""; } catch { return ""; } }
 function setToken(t) { try { sessionStorage.setItem("hs_token", t); } catch {} }
+function clearToken() { try { sessionStorage.removeItem("hs_token"); } catch {} }
+
+class ApiError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
+let authed = false;   // true dopo che una prima chiamata ha avuto successo
+let pollTimer = null;
+
+function banner(text) {
+  let el = $("banner");
+  if (!el) { el = h("p", { id: "banner", class: "card" }); document.body.prepend(el); }
+  el.textContent = text;
+}
+
+function lostAuth() {
+  authed = false;
+  clearInterval(pollTimer);
+  clearToken();
+  banner("Token non più valido (o cambiato). Ricarica la pagina e inseriscilo di nuovo.");
+}
 
 async function raw(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (getToken()) headers["X-API-Token"] = getToken();
   if (opts.json) { headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(opts.json); }
   const res = await fetch("/api" + path, { method: opts.method || "GET", headers, body: opts.body });
-  if (res.status === 401) {
-    const t = prompt("Token del pannello (API_TOKEN):");
-    if (t) { setToken(t); return raw(path, opts); }
-  }
   if (!res.ok) {
+    if (res.status === 401 && authed) lostAuth();
     const err = await res.json().catch(() => ({}));
-    throw new Error(typeof err.detail === "string" ? err.detail : res.statusText);
+    throw new ApiError(typeof err.detail === "string" ? err.detail : res.statusText, res.status);
   }
   return res;
 }
 const api = async (path, opts) => (await raw(path, opts)).json();
+
+// Una sola richiesta di prova PRIMA di tutte le altre: se serve il token lo chiede una volta sola.
+// (Mandare più richieste insieme senza token farebbe scattare il limite dei tentativi del backend.)
+async function authenticate() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await api("/services");
+      return true;
+    } catch (e) {
+      if (e.status === 429) { banner("Troppi tentativi: attendi un minuto e ricarica la pagina."); return false; }
+      if (e.status !== 401) return true;   // token ok: altri errori (es. Docker spento) li mostrano le sezioni
+      clearToken();
+      const t = (prompt("Token del pannello (quello mostrato da gen-api-token.sh):") || "").trim();
+      if (!t) { banner("Token richiesto. Ricarica la pagina per inserirlo."); return false; }
+      setToken(t);
+    }
+  }
+  banner("Token errato. Ricarica la pagina e riprova.");
+  return false;
+}
 
 // ---- servizi ----
 async function loadServices() {
@@ -168,5 +206,10 @@ async function loadWg() {
 
 // ---- avvio ----
 function refresh() { loadServices(); loadDownloads(); loadLibrary(); loadWg(); }
-refresh();
-setInterval(refresh, 10000);
+
+(async () => {
+  if (!(await authenticate())) return;
+  authed = true;
+  refresh();
+  pollTimer = setInterval(refresh, 10000);
+})();

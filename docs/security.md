@@ -31,7 +31,7 @@ che Bitwarden/Vaultwarden cifrano già in AES-256 lato client con la tua passwor
 | Token che finisce in log/cronologia | Letto solo dall'header `X-API-Token`, mai da URL/query; non viene mai riportato negli errori |
 | Header injection / payload strani (`CRLF`, SQL, UTF-8, spazi) | Formato rigido `[A-Za-z0-9_-]{32,128}`: tutto il resto è respinto prima di essere elaborato |
 | Timing attack | Confronto degli hash a tempo costante (`hmac.compare_digest`) |
-| Tentativi ripetuti | Dopo 10 errori in un minuto dallo stesso client: `429` con `Retry-After` |
+| Tentativi ripetuti | Dopo 10 token sbagliati in un minuto dallo stesso client: `429` con `Retry-After`. Un token valido passa comunque (indovinarlo è impossibile), così non ti chiudi fuori da solo |
 | Configurazione sbagliata | Hash malformato ⇒ `503` (si chiude, non si apre); nessun token ⇒ auth disattivata (solo per prove) |
 | XSS nel pannello | Il frontend scrive i dati con `textContent`, mai `innerHTML`; nginx manda una Content-Security-Policy (`script-src 'self'`) |
 | Click-jacking, sniffing del tipo di file | `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` sulle API |

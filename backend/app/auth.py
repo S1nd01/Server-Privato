@@ -53,6 +53,13 @@ def require_token(request: Request) -> None:
     if expected is None:
         return
 
+    given = request.headers.get("x-api-token", "")
+    ok = bool(TOKEN_RE.fullmatch(given)) and hmac.compare_digest(
+        hashlib.sha256(given.encode()).hexdigest(), expected
+    )
+    if ok:
+        return  # un token valido passa sempre: indovinarlo e' impossibile (256 bit), il limite serve contro il rumore
+
     key = _client_key(request)
     now = time.monotonic()
     recent = _fails[key]
@@ -60,13 +67,5 @@ def require_token(request: Request) -> None:
         recent.popleft()
     if len(recent) >= MAX_FAILS:
         raise HTTPException(429, "Troppi tentativi, riprova tra un minuto", headers={"Retry-After": "60"})
-
-    given = request.headers.get("x-api-token", "")
-    ok = bool(TOKEN_RE.fullmatch(given)) and hmac.compare_digest(
-        hashlib.sha256(given.encode()).hexdigest(), expected
-    )
-    if not ok:
-        recent.append(now)
-        raise HTTPException(401, "Token mancante o errato")
-    if not recent:
-        _fails.pop(key, None)
+    recent.append(now)
+    raise HTTPException(401, "Token mancante o errato")
