@@ -1,18 +1,30 @@
+from contextlib import asynccontextmanager
+
 from docker.errors import NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import steam, wireguard
+from . import backup, steam, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import SERVICES
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    backup.start_scheduler()
+    yield
+    backup.stop_scheduler()
+
+
 app = FastAPI(
     title="Homeserver API",
-    version="0.2.0",
+    version="0.3.0",
     dependencies=[Depends(require_token)],
+    lifespan=lifespan,
 )
 app.include_router(steam.router)
-app.include_router(wireguard.router)
+app.include_router(tailscale.router)
+app.include_router(backup.router)
 
 
 def _container_state(client, name: str) -> dict:
@@ -41,6 +53,8 @@ def _service_status(client, sid: str) -> dict:
         "description": meta["description"],
         "scheme": meta["scheme"],
         "url_port": meta["url_port"],
+        "path": meta.get("path", ""),
+        "can_stop": meta.get("allow_stop", True),
         "status": overall,
         "containers": containers,
     }
@@ -70,8 +84,15 @@ def get_service(sid: str):
 
 def _act(sid: str, action: str):
     _get_or_404(sid)
+    meta = SERVICES[sid]
+    if action != "start" and not meta.get("allow_stop", True):
+        raise HTTPException(
+            409,
+            f"{meta['name']} non si ferma dal pannello: se ti stai collegando tramite quel servizio "
+            "perderesti l'accesso. Usa il terminale sul server.",
+        )
     client = _client()
-    for name in SERVICES[sid]["containers"]:
+    for name in meta["containers"]:
         try:
             c = client.containers.get(name)
         except NotFound:

@@ -2,49 +2,55 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Homeserver</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
-    h2 { margin-top: 2rem; font-size: 1.1rem; color: #bbb; text-transform: uppercase; letter-spacing: .05em; }
-    .card { border: 1px solid #333; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-    .row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    .badge { padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; background: #444; }
-    .running, .exited0 { background: #1f7a3a; } .partial { background: #a06b00; }
-    .stopped, .not_created, .failed { background: #7a1f1f; }
-    button { background: #2a2a2a; color: #eee; border: 1px solid #555; border-radius: 6px; padding: .4rem .8rem; cursor: pointer; }
-    button:hover { background: #3a3a3a; }
-    input, select { background: #1c1c1c; color: #eee; border: 1px solid #555; border-radius: 6px; padding: .4rem .6rem; }
-    form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
-    pre { background: #000; padding: .6rem; border-radius: 6px; max-height: 14rem; overflow: auto; font-size: .8rem; white-space: pre-wrap; }
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    td, th { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid #2a2a2a; }
-    small, .muted { color: #999; }
-    a { color: #8ab4f8; }
-  </style>
+  <meta name="description" content="Pannello di controllo del tuo home server">
+  <meta name="theme-color" content="#1E181D">
+  <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Homeserver">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <h1>Homeserver</h1>
-
-  <h2>Servizi</h2>
-  <div id="list">Caricamento…</div>
-
-  <h2>Steam (SteamCMD)</h2>
-  <div class="card">
-    <form id="steam-form">
-      <input id="appid" type="number" min="1" placeholder="AppID (es. 440)" required style="width:10rem">
-      <select id="platform"><option>windows</option><option>linux</option><option>macos</option></select>
-      <input id="login" value="anonymous" title="anonymous oppure il tuo username Steam (login già fatto)" style="width:9rem">
-      <button type="submit">Scarica</button>
+  <section id="gate" hidden>
+    <form id="gate-form" autocomplete="off">
+      <img src="/icons/icon.svg" alt="" width="56" height="56">
+      <h1>Homeserver</h1>
+      <p>Inserisci il token del pannello, quello mostrato da gen-api-token.sh.</p>
+      <label for="token">Token</label>
+      <input id="token" name="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      <label class="check"><input id="remember" type="checkbox"> Ricorda su questo dispositivo</label>
+      <p id="gate-msg" class="notice" data-kind="error" role="alert" hidden></p>
+      <button class="btn primary" type="submit">Entra</button>
     </form>
-    <p class="muted"><small>L'AppID è nell'URL dello store: store.steampowered.com/app/<b>440</b>/…  I giochi a pagamento richiedono il tuo account (vedi docs/steamcmd.md).</small></p>
+  </section>
+
+  <div id="app" hidden>
+    <header class="bezel">
+      <div class="brand">
+        <img src="/icons/icon.svg" alt="" width="28" height="28">
+        <div><strong>Homeserver</strong><span id="summary">Controllo in corso</span></div>
+      </div>
+      <div id="leds" class="leds" role="img" aria-label="Stato dei servizi"></div>
+    </header>
+
+    <nav aria-label="Sezioni">
+      <a href="#servizi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r=".9"/><circle cx="7" cy="17" r=".9"/></svg><span>Servizi</span></a>
+      <a href="#steam"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg><span>Steam</span></a>
+      <a href="#backup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg><span>Backup</span></a>
+      <a href="#rete"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span>Rete</span></a>
+    </nav>
+
+    <main id="view" tabindex="-1"></main>
   </div>
-  <div id="downloads"></div>
-  <div class="card"><strong>Libreria</strong><div id="library" class="muted">…</div></div>
-
-  <h2>WireGuard</h2>
-  <div class="card" id="wg">…</div>
-
-  <script src="app.js"></script>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p>Serve JavaScript per usare il pannello.</p></noscript>
 </body>
 </html>

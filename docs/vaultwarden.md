@@ -128,8 +128,14 @@ L'immagine usa `latest`: per più controllo fissa una versione (es. `vaultwarden
 
 ## Accesso da fuori casa
 
-**Non aprire 8443 sul router.** Entra con WireGuard (vedi `wireguard.md`): con lo split tunnel di default la LAN
-è raggiungibile, quindi se `VW_HOST` è l'IP LAN del server lo stesso indirizzo funziona dentro e fuori casa.
+**Non aprire 8443 sul router.** Da fuori si usa Tailscale (vedi `tailscale.md`), che pubblica Vaultwarden in HTTPS
+con un certificato valido (niente CA da installare sul telefono):
+
+1. Nel `.env` metti `VW_DOMAIN=https://<server>.<rete>.ts.net:8443` (l'indirizzo esatto lo vedi nel pannello, sezione Rete).
+2. `docker compose up -d vaultwarden`
+3. Nell'app Bitwarden sul telefono: URL del server = `https://<server>.<rete>.ts.net:8443`.
+
+In casa continua a funzionare `https://localhost:8443` (con la CA di Caddy).
 
 ## Problemi comuni
 

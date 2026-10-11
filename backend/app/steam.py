@@ -36,10 +36,22 @@ class DownloadRequest(BaseModel):
     validate_files: bool = True
 
 
+PROGRESS_RE = re.compile(r"progress:\s*([0-9]+(?:\.[0-9]+)?)\s*\((\d+)\s*/\s*(\d+)\)")
+
+
+def parse_progress(text: str) -> dict:
+    """Ultimo avanzamento nei log di SteamCMD: 'Update state (0x61) downloading, progress: 45.67 (123 / 270)'."""
+    matches = PROGRESS_RE.findall(text.replace("\r", "\n"))
+    if not matches:
+        return {}
+    pct, done, total = matches[-1]
+    return {"progress": round(float(pct), 1), "downloaded_bytes": int(done), "total_bytes": int(total)}
+
+
 def _info(c) -> dict:
     c.reload()
     state = c.attrs["State"]
-    return {
+    info = {
         "appid": int(c.labels.get("hs.appid", 0)),
         "platform": c.labels.get("hs.platform"),
         "status": c.status,
@@ -47,6 +59,12 @@ def _info(c) -> dict:
         "started_at": state.get("StartedAt"),
         "finished_at": state.get("FinishedAt"),
     }
+    if c.status == "running":
+        try:
+            info.update(parse_progress(c.logs(tail=20).decode(errors="replace")))
+        except Exception:  # noqa: BLE001 - l'avanzamento e' un extra
+            pass
+    return info
 
 
 def _find(client, appid: int):

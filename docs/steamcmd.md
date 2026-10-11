@@ -58,7 +58,7 @@ Valve ed è più lenta e fragile. Prima dell'acquisto scegli:
 - Raspberry + emulatore (verifica guide recenti per il tuo modello), oppure
 - un mini PC x86 usato: stesso `compose.yaml`, nessuna emulazione, di solito nella stessa fascia di prezzo (da controllare).
 
-Tutto il resto (Immich, Vaultwarden, WireGuard, pannello) ha immagini ARM e gira sul Pi.
+Tutto il resto (Immich, Vaultwarden, Tailscale, Jellyfin, Pi-hole, pannello) ha immagini ARM e gira sul Pi.
 
 ## API
 

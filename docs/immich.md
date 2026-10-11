@@ -48,3 +48,8 @@ di `$DATA_DIR/immich/postgres`.
 docker compose pull immich-server immich-machine-learning
 docker compose up -d immich-server immich-machine-learning
 ```
+
+## Dal telefono (fuori casa)
+
+Con Tailscale acceso sul telefono, nell'app Immich usa `https://<server>.<rete>.ts.net:2283` (vedi `tailscale.md`).
+Le foto e i dati di Immich sono inclusi nel backup Restic (`restic.md`).
