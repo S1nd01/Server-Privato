@@ -27,6 +27,10 @@ homeserver/
 └── .env.example
 ```
 
+## Windows (installazione automatica)
+
+Doppio clic su `setup-windows.bat` (guida: [docs/windows.md](docs/windows.md), con anche lo spostamento su SSD esterno e la RAM).
+
 ## Avvio su PC Linux (branch `pc-linux`)
 
 ```bash
