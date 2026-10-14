@@ -36,7 +36,7 @@ Un SSD ext4 non si legge su Windows senza driver aggiuntivi: formattalo exFAT. D
 restano invece su `DATA_DIR` (ext4), mai su exFAT.
 
 Montaggio su Linux (esempio): `sudo mount -o uid=1000,gid=1000 /dev/sdX1 /mnt/ssd`, poi
-`STEAM_GAMES_DIR=/mnt/ssd/steam-games`. Prima di staccare il disco: attendi la fine del download, `sync`, `umount`.
+scegli `/mnt/ssd/steam-games` quando `start.sh` chiede dove scaricare i giochi (o dopo, con `./src/scripts/sync-env.sh --percorsi`). Prima di staccare il disco: attendi la fine del download, `sync`, `umount`.
 
 ## Usare i giochi sul PC Windows
 

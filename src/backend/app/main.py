@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from docker.errors import NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import backup, steam, tailscale
+from . import backup, stats, steam, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import SERVICES
@@ -18,7 +18,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Homeserver API",
-    version="0.3.0",
+    version="0.4.0",
     dependencies=[Depends(require_token)],
     lifespan=lifespan,
 )
@@ -74,6 +74,12 @@ def health():
 def list_services():
     client = _client()
     return [_service_status(client, sid) for sid in SERVICES]
+
+
+@app.get("/api/stats")
+def get_stats():
+    """Risorse del server e dei servizi (CPU, RAM, dischi, tempo di attivita', salute)."""
+    return stats.collect(_client())
 
 
 @app.get("/api/services/{sid}")

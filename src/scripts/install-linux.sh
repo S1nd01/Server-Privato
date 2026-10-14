@@ -2,6 +2,7 @@
 # Installazione automatica DENTRO Ubuntu (WSL o Linux). Lo lancia setup-windows.bat, ma si puo' usare anche a mano:
 #   bash install-linux.sh <cartella-con-il-progetto>
 # Si puo' rilanciare quante volte vuoi: non tocca il .env e i dati che ci sono gia'.
+# Le cartelle dei dati le sceglie l'utente con una domanda (sync-env.sh): non serve modificare il .env a mano.
 set -euo pipefail
 
 say() { printf '\n== %s\n' "$*"; }
@@ -27,14 +28,14 @@ if [ "$SRC" != "$DEST" ]; then
 fi
 cd "$DEST"
 # se i file arrivano da Windows possono avere i ritorni a capo di Windows: bash non li digerisce
-sed -i 's/\r$//' scripts/*.sh .env.example 2>/dev/null || true
-chmod +x scripts/*.sh
+sed -i 's/\r$//' src/scripts/*.sh .env.example 2>/dev/null || true
+chmod +x src/scripts/*.sh
 
 # ---------------------------------------------------------------- 2. programmi necessari
 if [ "$SKIP_SYSTEM" != "1" ]; then
   say "2/6 Installo Docker e gli strumenti (ti chiedo la password di Ubuntu)"
   sudo apt-get update -y
-  sudo apt-get install -y docker.io docker-compose-v2 openssl unzip rsync curl dnsutils
+  sudo apt-get install -y docker.io docker-compose-v2 openssl unzip rsync curl dnsutils gnupg cron
   if [ -d /run/systemd/system ]; then
     sudo systemctl enable --now docker
   else
@@ -55,19 +56,13 @@ else
   DC="echo [test] docker compose"
 fi
 
-# ---------------------------------------------------------------- 3. file .env
-say "3/6 Preparo il file .env"
-if [ ! -f .env ]; then
-  cp .env.example .env
-  sed -i "s#/home/CAMBIAMI#$HOME#g" .env
-  sed -i "s/^IMMICH_DB_PASSWORD=.*/IMMICH_DB_PASSWORD=$(openssl rand -hex 8)/" .env
-  sed -i "s/^PUID=.*/PUID=$(id -u)/; s/^PGID=.*/PGID=$(id -g)/" .env
-  echo "Creato .env nuovo."
-else
-  echo ".env gia' presente: lo lascio com'e'."
-fi
-chmod 600 .env
+# ---------------------------------------------------------------- 3. .env, percorsi e cartelle
+say "3/6 Preparo il .env e scelgo le cartelle (dati dei servizi e giochi Steam)"
+# crea il .env se manca, chiede dove salvare i dati e i giochi, crea le cartelle col tuo utente
+./src/scripts/sync-env.sh
 
+# ---------------------------------------------------------------- 4. Tailscale
+say "4/6 Tailscale"
 if ! grep -qE '^TS_AUTHKEY=.+' .env; then
   echo
   echo "Tailscale (accesso dal telefono). Se non l'hai ancora, crea la chiave qui:"
@@ -84,16 +79,12 @@ if ! grep -qE '^TS_AUTHKEY=.+' .env; then
   fi
 fi
 
-# ---------------------------------------------------------------- 4. cartelle e password
-say "4/6 Creo le cartelle dei dati"
-./scripts/sync-env.sh
-
 # ---------------------------------------------------------------- 5. token del pannello
 say "5/6 Token del pannello"
 if grep -qE '^API_TOKEN_HASH=sha256:[0-9a-f]{64}$' .env; then
   echo "Token gia' impostato: lo lascio."
 else
-  ./scripts/gen-api-token.sh
+  ./src/scripts/gen-api-token.sh
   echo
   printf "Hai copiato il token? Premi Invio per continuare "
   read -r _ || true
@@ -105,6 +96,13 @@ $DC config -q || die "Il file compose.yaml non e' valido con questo .env."
 $DC up -d --build --remove-orphans
 $DC ps
 
+BACKUP_NOTE=""
+if grep -qE '^RESTIC_REPO_DIR=.+' .env; then
+  BACKUP_NOTE="
+Backup: nel pannello, sezione Backup, premi 'Prepara l'archivio' (una volta sola).
+Le passphrase dei backup sono in ~/.restic-pass e ~/.vw-backup-pass: copiale FUORI dal server."
+fi
+
 cat <<MSG
 
 Fatto. Apri nel browser di Windows:
@@ -115,5 +113,8 @@ Fatto. Apri nel browser di Windows:
   Vaultwarden https://localhost:8443
 
 Il progetto e' in: $DEST
+Dati dei servizi: $(grep -E '^DATA_DIR=' .env | cut -d= -f2-)
+Giochi Steam:     $(grep -E '^STEAM_GAMES_DIR=' .env | cut -d= -f2-)
+$BACKUP_NOTE
 Prossimo passo (telefono): docs/tailscale.md
 MSG

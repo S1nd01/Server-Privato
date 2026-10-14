@@ -4,15 +4,18 @@ Salva Vaultwarden, le foto di Immich, la configurazione di Pi-hole e di Jellyfin
 
 ## Attivazione
 
-1. Scegli dove tenere l'archivio, **meglio su un disco diverso** da quello dei dati (es. `/mnt/e/backup-restic`).
-2. Crea la passphrase:
-   ```bash
-   umask 077; openssl rand -base64 32 > ~/.restic-pass
-   ```
-   **Copiala anche fuori dal server** (password manager, foglio stampato): senza, i backup non si aprono più.
-3. Nel `.env`: `RESTIC_REPO_DIR=/mnt/e/backup-restic` e `RESTIC_PASSWORD_FILE=/home/<tu>/.restic-pass` (percorsi assoluti).
-4. `docker compose up -d --build backend`
-5. Pannello, sezione Backup: **Prepara l'archivio**, poi **Esegui backup ora**.
+La configurazione la fa l'installazione (`setup-windows.bat`, `start.sh` o `./src/scripts/sync-env.sh`) la prima volta:
+- ti chiede **dove salvare i backup** (meglio un disco diverso da quello dei dati, per esempio `D:\Backup`; scrivi `no` per non attivarli);
+- crea l'archivio in `<cartella>/restic` e imposta `RESTIC_REPO_DIR` e `RESTIC_PASSWORD_FILE` nel `.env`;
+- genera la passphrase in `~/.restic-pass` (permessi 600) e te la **mostra una volta sola**.
+
+**Copia la passphrase fuori dal server** (password manager nel cloud, foglio stampato): senza, i backup non si aprono più.
+Se la perdi, la trovi con `cat ~/.restic-pass`, ma solo finché il server funziona.
+
+Poi, nel pannello, sezione Backup: **Prepara l'archivio** (una volta sola) e **Esegui backup ora**.
+
+Per cambiare cartella dopo: `./src/scripts/sync-env.sh --percorsi` (l'archivio già creato non viene spostato e la passphrase resta la stessa).
+A mano si può fare anche dal `.env` (`RESTIC_REPO_DIR`, `RESTIC_PASSWORD_FILE`, percorsi assoluti), poi `docker compose up -d --build backend`.
 
 Dopo, parte da solo ogni giorno all'ora di `RESTIC_SCHEDULE` (03:30): backup, poi pulizia delle copie vecchie (7 giornaliere, 4 settimanali, 6 mensili).
 

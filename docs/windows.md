@@ -5,10 +5,15 @@
 1. Metti la cartella del progetto in un percorso **senza spazi**, per esempio `C:\homeserver`.
 2. Doppio clic su `setup-windows.bat` e conferma la richiesta di amministratore.
 3. Se Ubuntu non c'e', lo installa; segui le istruzioni a schermo (eventuale riavvio, scelta di nome utente e password di Ubuntu) e **rilancia il file**.
-4. Lo script poi: installa Docker, prepara il `.env`, chiede (facoltativa) la chiave Tailscale, crea le cartelle, genera il token del pannello (**copialo quando compare**), avvia i servizi, imposta la RAM di WSL, fa partire WSL a ogni accesso a Windows e, se vuoi, disattiva la sospensione.
+4. Lo script poi: installa Docker, prepara il `.env` **senza che tu lo tocchi**, ti chiede dove salvare i dati dei servizi, i giochi Steam e i backup (Invio = cartelle predefinite), genera le passphrase dei backup (**copiale quando compaiono**), crea le cartelle, chiede (facoltativa) la chiave Tailscale, genera il token del pannello (**copialo quando compare**), avvia i servizi, imposta la RAM di WSL, fa partire WSL a ogni accesso a Windows e, se vuoi, disattiva la sospensione.
 5. Pannello: http://localhost:8088
 
 Si puo' rilanciare quando vuoi: aggiorna il codice, non tocca `.env` e dati.
+
+**Le due domande sulle cartelle**
+- *Dati dei servizi* (database, impostazioni): devono stare nel disco di Linux (WSL), non su un disco Windows. Il predefinito è `~/homeserver-data`.
+- *Giochi Steam*: puoi indicare anche un disco di Windows, scrivendolo come lo vedi tu: `D:\Giochi` diventa `/mnt/d/Giochi`. Il percorso non può avere spazi né accenti.
+- Per cambiarle dopo: in Ubuntu, `cd ~/homeserver && ./src/scripts/sync-env.sh --percorsi`.
 
 Il server resta acceso solo se il PC e' acceso, con l'utente collegato a Windows e senza sospensione.
 
@@ -39,7 +44,7 @@ Requisiti: l'SSD (o una sua partizione) formattato **NTFS** (non exFAT) e senza 
 
 Prima di staccare l'SSD: **`wsl --shutdown`**, mai a servizi in funzione (rischio di corrompere il disco virtuale). Se l'SSD manca all'accesso a Windows, WSL non parte e i servizi restano fermi.
 
-Giochi Steam, foto, film e archivio Restic possono restare su partizioni exFAT/NTFS dell'SSD: indica il percorso in `STEAM_GAMES_DIR`, `PHOTOS_DIR`, `MEDIA_DIR`, `RESTIC_REPO_DIR` (da WSL le vedi come `/mnt/e/...`).
+Giochi Steam, foto, film e archivio Restic possono restare su partizioni exFAT/NTFS dell'SSD: per i giochi Steam il percorso lo scegli con la domanda dell'installazione (o `sync-env.sh --percorsi`); per `PHOTOS_DIR`, `MEDIA_DIR` e `RESTIC_REPO_DIR` si usa il `.env` (da WSL le vedi come `/mnt/e/...`).
 
 ## Quanto spazio e quanta RAM
 

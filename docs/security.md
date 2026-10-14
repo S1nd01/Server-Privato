@@ -8,7 +8,7 @@ Obiettivo realistico: un server in casa, raggiungibile da fuori **solo** via Tai
 Il pannello comanda Docker (equivale a root sul sistema), quindi ogni chiamata `/api` richiede un token.
 
 ```bash
-./scripts/gen-api-token.sh          # genera 256 bit casuali, mostra il token UNA volta
+./src/scripts/gen-api-token.sh          # genera 256 bit casuali, mostra il token UNA volta
 docker compose up -d backend
 ```
 

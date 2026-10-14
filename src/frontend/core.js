@@ -17,6 +17,25 @@ export function h(tag, attrs = {}, ...children) {
   return el;
 }
 
+// Come h(), ma per gli elementi SVG (servono per gli anelli d'uso).
+export function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v != null && v !== false) el.setAttribute(k, String(v));
+  }
+  for (const c of children.flat()) if (c) el.append(c);
+  return el;
+}
+
+// 90 -> "1 min", 7300 -> "2 h 1 min", 200000 -> "2 g 7 h"
+export function fmtDuration(s) {
+  if (s == null) return "—";
+  if (s < 60) return "meno di 1 min";
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+  return `${Math.floor(s / 86400)} g ${Math.floor((s % 86400) / 3600)} h`;
+}
+
 export function fmtBytes(n) {
   if (n == null) return "?";
   const u = ["B", "KB", "MB", "GB", "TB"];

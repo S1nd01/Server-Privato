@@ -179,6 +179,7 @@ input[type="text"], input[type="number"], input[type="password"], select {
   .bezel { padding-left: calc(13rem + 1.5rem); padding-right: 1.5rem; }
   main { margin-left: 13rem; padding: 1.75rem 2rem 3rem; max-width: none; }
   main > * { max-width: 46rem; }
+  main > .wide { max-width: none; }
   #toast { bottom: 1.5rem; }
   .bezel { z-index: 7; }
 }
@@ -187,3 +188,50 @@ input[type="text"], input[type="number"], input[type="password"], select {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 #view > .panel { margin: -1rem 0 2rem; }
+
+/* ---- scheda "Servizi": barra col nome e l'interruttore, anello d'uso, dati ---- */
+.alerts { display: grid; gap: .5rem; margin-bottom: 1.25rem; }
+.panel .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem 1.25rem; }
+.meter { display: grid; gap: .35rem; }
+.mhead { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; font-size: .9375rem; }
+.mhead strong { font-variant-numeric: tabular-nums; }
+.meter .bar { margin: 0; }
+.bar[data-level="warn"] i { background: var(--warn); }
+.bar[data-level="bad"] i { background: var(--bad); }
+.bar[data-level="ok"] i { background: var(--ok); }
+
+.mini { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem 1rem; }
+.mini dt { color: var(--muted); font-size: .8125rem; }
+.mini dd { margin: 0; font-weight: 600; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.mini dd small { font-weight: 400; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); gap: 1rem; }
+.card { display: grid; gap: 1rem; align-content: start; padding: 1rem; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius); transition: opacity .2s; }
+.card.busy { opacity: .7; }
+.cardbar { display: flex; align-items: center; gap: .65rem; padding: .4rem .5rem .4rem .8rem; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+.cardbar .text { flex: 1; min-width: 0; }
+.cardbar .desc { font-size: .8125rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .detail { padding: 0; }
+.card .containers small { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card .actions { justify-content: flex-start; gap: .4rem; }
+.card .actions .btn { padding: 0 .65rem; font-size: .875rem; }
+.card .actions .btn.quiet { padding: 0 .3rem; }
+/* nelle card strette: Memoria e Attivo da affiancati, Salute e Riavvii a tutta larghezza (niente testo spezzato) */
+.card .mini > div:nth-child(n+3) { grid-column: 1 / -1; }
+.card .mini dd { flex-wrap: nowrap; white-space: nowrap; }
+.card .mini > div:nth-child(-n+2) dd { flex-wrap: wrap; }   /* valore, poi il dettaglio sotto (es. "28% del server") */
+.card .mini dd small { white-space: normal; }
+
+.gauge { position: relative; width: 8.5rem; height: 8.5rem; justify-self: center; }
+.gauge svg { display: block; width: 100%; height: 100%; }
+.gauge circle { fill: none; stroke-width: 9; }
+.gauge .track { stroke: var(--line); }
+.gauge .arc { stroke: var(--ok); stroke-linecap: round; transition: stroke-dasharray .6s ease, stroke .3s; }
+.gauge[data-level="warn"] .arc { stroke: var(--warn); }
+.gauge[data-level="bad"] .arc { stroke: var(--bad); }
+.gauge[data-level="off"] .arc { opacity: 0; }
+.gauge[data-level="off"] .track { stroke-dasharray: 4.712 4.712; } /* 28 trattini: chiudono esatti sull'anello */
+.gv { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 0 1.4rem; }
+.gv strong { font-size: 1.75rem; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.gv strong.word { font-size: 1.05rem; font-weight: 600; color: var(--muted); }
+.gv small { text-transform: uppercase; letter-spacing: .08em; font-size: .6875rem; }

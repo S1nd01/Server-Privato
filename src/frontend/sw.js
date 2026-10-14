@@ -1,5 +1,5 @@
 // Service worker: tiene l'app (non i dati) per aprirla anche senza rete. Non memorizza MAI le chiamate /api/.
-const CACHE = "hs-shell-v1";
+const CACHE = "hs-shell-v2";
 const SHELL = ["/", "/style.css", "/app.js", "/core.js", "/views.js", "/manifest.webmanifest",
   "/fonts/bricolage-grotesque-latin-wght-normal.woff2", "/icons/icon.svg"];
 

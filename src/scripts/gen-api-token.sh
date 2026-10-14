@@ -3,7 +3,7 @@
 # In .env finisce SOLO l'hash SHA-256 (API_TOKEN_HASH); il token si vede una volta sola, qui.
 # Rilancialo quando vuoi ruotare il token. Poi: docker compose up -d backend
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 [ -f .env ] || { echo "ERRORE: .env non trovato (copia prima .env.example)" >&2; exit 1; }
 
 TOKEN="$(openssl rand -hex 32)"

@@ -2,7 +2,7 @@
 
 Pi-hole è un server DNS che rifiuta i nomi dei siti di pubblicità e tracker, per tutti i dispositivi che lo usano.
 
-1. La password dell'interfaccia la genera `./scripts/sync-env.sh` (`PIHOLE_PASSWORD` nel `.env`).
+1. La password dell'interfaccia la genera `./src/scripts/sync-env.sh` (`PIHOLE_PASSWORD` nel `.env`).
 2. `docker compose up -d pihole`, poi apri http://localhost:8053/admin.
 3. Prova dal computer: `dig @127.0.0.1 doubleclick.net` deve rispondere `0.0.0.0`.
 

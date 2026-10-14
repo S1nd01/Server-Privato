@@ -1,5 +1,5 @@
 // Le quattro schermate. Ognuna esporta mount(root, ctx) -> { update(), tick }.
-import { h, api, ApiError, fmtBytes, fmtDate, ago, toast } from "./core.js";
+import { h, svg, api, ApiError, fmtBytes, fmtDate, fmtDuration, ago, toast } from "./core.js";
 
 const STATUS_LABEL = {
   running: "Attivo", partial: "Parziale", stopped: "Fermo", not_created: "Non creato",
@@ -26,52 +26,220 @@ async function run(btn, fn) {
 
 // ---------------------------------------------------------------- Servizi
 const openServices = new Set();
+const RING = 2 * Math.PI * 42; // circonferenza dell'anello (raggio 42 nel viewBox 100x100)
+const HEALTH = { healthy: "Funziona bene", starting: "In avvio", unhealthy: "Non risponde" };
+const HEALTH_LED = { healthy: "running", starting: "partial", unhealthy: "failed" };
+
+const level = (p) => (p == null ? "off" : p >= 85 ? "bad" : p >= 60 ? "warn" : "ok");
+const pct = (n) => (n == null ? "—" : (n < 10 ? n.toFixed(1) : String(Math.round(n))).replace(".", ",") + "%");
+const dec = (n) => String(n).replace(".", ",");
+
+// barra con etichetta, valore e dettaglio (usata per il server)
+function meter(label, p, value, sub) {
+  const fill = h("i");
+  fill.style.width = Math.max(0, Math.min(100, p ?? 0)) + "%";
+  return h("div", { class: "meter" },
+    h("div", { class: "mhead" }, h("span", {}, label), h("strong", {}, value)),
+    h("div", { class: "bar", "data-level": level(p), role: "progressbar", "aria-label": label,
+      "aria-valuenow": p == null ? null : String(Math.round(p)), "aria-valuemin": "0", "aria-valuemax": "100" }, fill),
+    sub ? h("small", {}, sub) : null);
+}
+
+function fact(label, value, sub, lead) {
+  return h("div", {}, h("dt", {}, label), h("dd", {}, lead || null, value, sub ? h("small", {}, sub) : null));
+}
+
+function renderHost(host) {
+  const memP = host.mem_total ? (host.mem_used / host.mem_total) * 100 : null;
+  const tiles = [
+    meter("Processore", host.cpu_percent, pct(host.cpu_percent),
+      host.load ? `Carico ${host.load.map(dec).join(" · ")} su ${host.cores} core` : `${host.cores} core`),
+    meter("Memoria", memP, pct(memP), `${fmtBytes(host.mem_used)} di ${fmtBytes(host.mem_total)}`),
+    ...(host.disks || []).map((d) => {
+      const p = d.total ? (d.used / d.total) * 100 : null;
+      return meter(`Disco ${d.label}`, p, pct(p), `${fmtBytes(d.used)} di ${fmtBytes(d.total)}`);
+    }),
+  ];
+  const facts = h("dl", { class: "mini" },
+    fact("Server acceso da", fmtDuration(host.uptime_s)),
+    host.temp_c != null ? fact("Temperatura", dec(host.temp_c) + " °C") : null);
+  return [h("div", { class: "meters" }, tiles), facts];
+}
+
+// Una scheda per servizio: barra col nome e l'interruttore, anello d'uso, dati, dettagli.
+// Si crea una volta sola e poi si aggiorna sul posto (patch): cosi' il focus non si perde a ogni aggiornamento.
+function makeCard({ act }) {
+  const state = { s: null, on: false };
+  const ledSlot = h("span", { class: "ledslot" });
+  const name = h("strong");
+  const sw = h("button", { class: "switch", role: "switch", onclick: () => act(state.s, state.on ? "stop" : "start") }, h("span", { class: "knob" }));
+  const desc = h("small", { class: "desc" });
+
+  const value = h("strong");
+  const caption = h("small");
+  const arc = svg("circle", { cx: 50, cy: 50, r: 42, class: "arc", transform: "rotate(-90 50 50)" });
+  const gauge = h("div", { class: "gauge", role: "img" },
+    svg("svg", { viewBox: "0 0 100 100", "aria-hidden": "true" }, svg("circle", { cx: 50, cy: 50, r: 42, class: "track" }), arc),
+    h("div", { class: "gv" }, value, caption));
+
+  const mini = h("dl", { class: "mini" });
+  const containers = h("ul", { class: "containers" });
+  const detail = h("div", { class: "detail", hidden: true }, containers);
+  const more = h("button", { class: "btn quiet", "aria-expanded": "false", onclick: () => {
+    const id = state.s.id;
+    openServices.has(id) ? openServices.delete(id) : openServices.add(id);
+    syncOpen();
+  } }, "Dettagli");
+  const openLink = h("a", { class: "btn", target: "_blank", rel: "noopener" }, "Apri");
+  const restart = h("button", { class: "btn", onclick: () => act(state.s, "restart") }, "Riavvia");
+
+  const el = h("article", { class: "card" },
+    h("div", { class: "cardbar" }, ledSlot, h("span", { class: "text" }, name, desc), sw),
+    gauge, mini,
+    h("div", { class: "actions wrap" }, more, openLink, restart),
+    detail);
+
+  function syncOpen() {
+    const open = state.s ? openServices.has(state.s.id) : false;
+    detail.hidden = !open;
+    more.setAttribute("aria-expanded", String(open));
+    more.textContent = open ? "Nascondi dettagli" : "Dettagli";
+  }
+
+  function patch(s, st, host, isBusy) {
+    state.s = s;
+    const on = s.status === "running" || s.status === "partial";
+    state.on = on;
+    el.className = "card" + (isBusy ? " busy" : "");
+    ledSlot.replaceChildren(led(isBusy ? "partial" : s.status));
+    name.textContent = s.name;
+    desc.textContent = isBusy ? "Un attimo…" : `${STATUS_LABEL[s.status] || s.status}. ${s.description}`;
+    desc.title = isBusy ? "" : s.description;   // la descrizione e' tagliata a 2 righe: per intero nel suggerimento
+
+    const canToggle = on ? s.can_stop : true;
+    sw.setAttribute("aria-checked", String(on));
+    sw.setAttribute("aria-label", (on ? "Ferma " : "Avvia ") + s.name);
+    sw.disabled = isBusy || !canToggle;
+    sw.title = canToggle ? "" : "Questo servizio non si ferma dal pannello";
+
+    // anello: uso della CPU rispetto a tutto il server
+    let p = null, big, small = "", word = false;
+    if (isBusy) { big = "…"; small = "un attimo"; word = true; }
+    else if (!on) { big = STATUS_LABEL[s.status] || s.status; word = true; }
+    else if (st && st.cpu_host_percent != null) { p = st.cpu_host_percent; big = pct(p); small = "uso CPU"; }
+    else { big = "—"; small = "uso CPU"; }
+    gauge.dataset.level = level(p);
+    arc.style.strokeDasharray = `${p == null ? 0 : (Math.min(100, Math.max(p, 1.5)) / 100) * RING} ${RING}`;
+    value.className = word ? "word" : "";
+    value.textContent = big;
+    caption.textContent = small;
+    gauge.setAttribute("aria-label", `${s.name}: ${big}${small ? " " + small : ""}`);
+
+    // dati del servizio acceso
+    mini.hidden = !(on && st);
+    if (on && st) {
+      mini.replaceChildren(
+        fact("Memoria", st.mem_bytes != null ? fmtBytes(st.mem_bytes) : "—",
+          host && host.mem_total && st.mem_bytes != null ? `${pct((st.mem_bytes / host.mem_total) * 100)} del server` : null),
+        fact("Attivo da", fmtDuration(st.uptime_s)),
+        fact("Salute", st.health ? HEALTH[st.health] || st.health : "Nessun controllo", null, st.health ? led(HEALTH_LED[st.health] || "partial") : null),
+        fact("Riavvii automatici", String(st.restarts), st.restarts > 0 ? "è andato in errore" : null));
+    }
+
+    containers.replaceChildren(...s.containers.map((c) => {
+      const x = st && st.containers && st.containers[c.name];
+      const info = c.status === "running" && x
+        ? `${pct(x.cpu_percent != null && host ? x.cpu_percent / host.cores : null)} · ${fmtBytes(x.mem_bytes)}`
+        : STATUS_LABEL[c.status] || c.status;
+      return h("li", {}, led(c.status), h("span", {}, c.name), h("small", {}, info));
+    }));
+
+    const url = serviceUrl(s);
+    openLink.hidden = !url || !on;
+    if (url) openLink.href = url;
+    restart.hidden = !s.can_stop;
+    restart.disabled = isBusy || s.status === "not_created";
+    syncOpen();
+  }
+
+  return { el, patch };
+}
 
 export function servizi(root, ctx) {
-  const list = h("ul", { class: "rows" });
-  root.append(section("Servizi", list));
-  let busy = new Set();
+  const alerts = h("div", { class: "alerts", hidden: true });
+  const hostBox = h("div", { class: "panel" }, h("p", { class: "empty" }, "Leggo i dati del server…"));
+  const grid = h("div", { class: "cards" });
+  const hostSection = section("Server", hostBox);
+  const cardsSection = section("Servizi", grid);
+  // su schermo largo queste sezioni occupano tutta la larghezza: le card si affiancano e vanno a capo
+  for (const el of [alerts, hostSection, cardsSection]) el.classList.add("wide");
+  root.append(alerts, hostSection, cardsSection);
+  const cards = new Map();
+  const busy = new Set();
+  let last = null;
+  let alertKey = "";
 
   async function act(s, action) {
     busy.add(s.id);
-    await update(false);
+    if (last) render();
     try { await api(`/services/${s.id}/${action}`, { method: "POST" }); }
     catch (e) { toast(e.message, "error"); }
     busy.delete(s.id);
     await update();
   }
 
-  function row(s) {
-    const open = openServices.has(s.id);
-    const on = s.status === "running" || s.status === "partial";
-    const url = serviceUrl(s);
-    const isBusy = busy.has(s.id);
-    const canToggle = on ? s.can_stop : true;
-    const sw = h("button", {
-      class: "switch", role: "switch", "aria-checked": String(on), disabled: isBusy || !canToggle,
-      "aria-label": (on ? "Ferma " : "Avvia ") + s.name,
-      title: !canToggle ? "Questo servizio non si ferma dal pannello" : null,
-      onclick: () => act(s, on ? "stop" : "start"),
-    }, h("span", { class: "knob" }));
-    const detail = h("div", { class: "detail", hidden: !open },
-      h("ul", { class: "containers" }, s.containers.map((c) => h("li", {}, led(c.status), h("span", {}, c.name), h("small", {}, STATUS_LABEL[c.status] || c.status)))),
-      h("div", { class: "actions" },
-        url ? h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "Apri") : null,
-        s.can_stop ? h("button", { class: "btn", disabled: isBusy || s.status === "not_created", onclick: () => act(s, "restart") }, "Riavvia") : null));
-    const head = h("button", {
-      class: "rowmain", "aria-expanded": String(open),
-      onclick: () => { open ? openServices.delete(s.id) : openServices.add(s.id); detail.hidden = open; head.setAttribute("aria-expanded", String(!open)); },
-    }, led(isBusy ? "partial" : s.status),
-      h("span", { class: "text" }, h("strong", {}, s.name), h("small", {}, isBusy ? "Un attimo…" : `${STATUS_LABEL[s.status] || s.status}. ${s.description}`)));
-    return h("li", { class: "row" + (isBusy ? " busy" : "") }, h("div", { class: "line" }, head, sw), detail);
+  function renderAlerts(services, st) {
+    const msgs = [];
+    services.forEach((s) => {
+      const x = st && st.services && st.services[s.id];
+      if (s.status === "partial") msgs.push(`${s.name} è acceso solo in parte: apri i dettagli per vedere quale pezzo è fermo.`);
+      if (x && x.health === "unhealthy") msgs.push(`${s.name} non supera il controllo di salute.`);
+    });
+    const setup = st && st.setup;
+    if (setup && (setup.missing.length || setup.root_owned.length)) {
+      const bad = [...setup.root_owned, ...setup.missing];
+      msgs.push(`Alcune cartelle dei dati mancano o non sono tue (${bad.slice(0, 4).join(", ")}${bad.length > 4 ? "…" : ""}). Dal terminale del server lancia ./src/scripts/sync-env.sh.`);
+    }
+    const host = st && st.host;
+    if (host) {
+      if (host.mem_total && host.mem_used / host.mem_total >= 0.9) msgs.push("La memoria del server è quasi piena.");
+      (host.disks || []).forEach((d) => { if (d.total && d.used / d.total >= 0.9) msgs.push(`Il disco ${d.label} è quasi pieno.`); });
+      if (host.temp_c != null && host.temp_c >= 75) msgs.push(`Il server è caldo: ${dec(host.temp_c)} °C.`);
+    }
+    const key = msgs.join("|");
+    if (key === alertKey) return; // non ricreo gli avvisi se non cambiano (i lettori di schermo non li rileggono)
+    alertKey = key;
+    alerts.hidden = msgs.length === 0;
+    alerts.replaceChildren(...msgs.map((m) => h("p", { class: "notice", "data-kind": "warn", role: "alert" }, m)));
+  }
+
+  function render() {
+    const { services, st } = last;
+    const host = st && st.host;
+    hostBox.replaceChildren(...(host ? renderHost(host) : [h("p", { class: "empty" }, "Dati del server non disponibili.")]));
+    const els = services.map((s) => {
+      let c = cards.get(s.id);
+      if (!c) { c = makeCard({ act }); cards.set(s.id, c); }
+      c.patch(s, st && st.services && st.services[s.id], host, busy.has(s.id));
+      return c.el;
+    });
+    const cur = Array.from(grid.children);
+    if (cur.length !== els.length || els.some((e, i) => e !== cur[i])) grid.replaceChildren(...els);
+    renderAlerts(services, st);
   }
 
   async function update() {
     try {
-      const services = await api("/services");
+      // le statistiche sono un di piu': se mancano si vedono comunque i servizi
+      const [services, st] = await Promise.all([api("/services"), api("/stats").catch(() => null)]);
+      last = { services, st };
+      render();
       ctx.setServices(services);
-      list.replaceChildren(...services.map(row));
-    } catch (e) { list.replaceChildren(errorBox(e)); }
+    } catch (e) {
+      cards.clear();
+      last = null;
+      grid.replaceChildren(errorBox(e));
+    }
   }
   return { update };
 }

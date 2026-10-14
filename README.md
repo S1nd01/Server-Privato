@@ -16,12 +16,13 @@ Il pannello è anche un'app installabile sul telefono: [docs/pwa.md](docs/pwa.md
 
 ```
 homeserver/
-├── backend/     FastAPI: servizi Docker, download SteamCMD, backup Restic, stato Tailscale
-├── frontend/    app web (PWA) statica servita da nginx (proxy /api -> backend)
+├── src/
+│   ├── backend/   FastAPI: servizi Docker, download SteamCMD, backup Restic, stato Tailscale
+│   ├── frontend/  app web (PWA) statica servita da nginx (proxy /api -> backend)
+│   └── scripts/   start.sh, sync-env.sh, gen-api-token.sh, backup-vaultwarden.sh (cifrato), install-linux.sh
 ├── nginx/       configurazione di nginx (CSP e header di sicurezza)
 ├── tailscale/   serve.json: quali servizi sono pubblicati in HTTPS nella tua rete
 ├── caddy/       Caddyfile (HTTPS per Vaultwarden)
-├── scripts/     gen-api-token.sh, backup-vaultwarden.sh (cifrato)
 ├── docs/        guide per servizio
 ├── compose.yaml
 └── .env.example
@@ -34,15 +35,25 @@ Doppio clic su `setup-windows.bat` (guida: [docs/windows.md](docs/windows.md), c
 ## Avvio su PC Linux (branch `pc-linux`)
 
 ```bash
-cp .env.example .env
-# modifica .env: DATA_DIR e STEAM_GAMES_DIR (percorsi ASSOLUTI), IMMICH_DB_PASSWORD, VW_HOST...
-./scripts/sync-env.sh        # completa il .env, genera la password di Pi-hole, crea le cartelle dei dati
-./scripts/gen-api-token.sh   # token del pannello
-docker compose up -d --build --remove-orphans
+./src/scripts/gen-api-token.sh   # token del pannello (una volta sola)
+./src/scripts/start.sh           # prepara tutto e avvia i container
 ```
 
-**Aggiornare da una versione precedente:** estrai il nuovo zip, copia dentro il tuo `.env`, poi
-`./scripts/sync-env.sh` e `docker compose up -d --build --remove-orphans` (`--remove-orphans` toglie il vecchio WireGuard).
+Non serve toccare il `.env`: la prima volta `start.sh` (tramite `sync-env.sh`) lo crea, ti **chiede dove salvare i dati
+dei servizi e dove scaricare i giochi Steam** (Invio = cartelle predefinite nella tua home), crea le cartelle col tuo
+utente, comprese `steam-games`, e poi lancia `docker compose up -d --build --remove-orphans`.
+
+- La prima volta imposta anche i **backup**: ti chiede dove salvarli, genera le passphrase di Restic e di Vaultwarden
+  (le mostra **una volta sola**: copiale fuori dal server) e, se vuoi, attiva il backup notturno di Vaultwarden.
+  Dopo, nel pannello, sezione Backup, premi *Prepara l'archivio*. Vedi [docs/restic.md](docs/restic.md).
+- Cambiare le cartelle più avanti: `./src/scripts/sync-env.sh --percorsi` (i dati già salvati non vengono spostati,
+  le passphrase già create restano quelle).
+- Se le cartelle dei dati mancano o non sono tue (di solito perché hai lanciato `docker compose up` a mano), il pannello
+  mostra un avviso e basta rilanciare `./src/scripts/sync-env.sh`. Con i percorsi non ancora scelti, `docker compose`
+  si ferma con lo stesso consiglio.
+
+**Aggiornare da una versione precedente:** estrai il nuovo zip, copia dentro il tuo `.env`, poi `./src/scripts/start.sh`
+(`--remove-orphans` toglie il vecchio WireGuard).
 
 - Pannello: http://localhost:8088
 - Immich: http://localhost:2283 · Jellyfin: http://localhost:8096 · Pi-hole: http://localhost:8053/admin
@@ -57,12 +68,13 @@ Avvio parziale: `docker compose up -d --build frontend backend caddy vaultwarden
 | GET | `/api/health` | stato backend (sempre senza token) |
 | GET | `/api/services` · `/api/services/{id}` | stato dei servizi Docker (`immich`, `jellyfin`, `vaultwarden`, `pihole`, `tailscale`) |
 | POST | `/api/services/{id}/start` · `stop` · `restart` | azione sul servizio |
+| GET | `/api/stats` | uso di risorse: server (CPU, RAM, dischi, temperatura) e per servizio (CPU, RAM, tempo di attività, salute, riavvii); `setup` segnala cartelle dei dati mancanti |
 | POST/GET/DELETE | `/api/steam/downloads…` · GET `/api/steam/library` | download SteamCMD ([docs](docs/steamcmd.md)) |
 | GET | `/api/tailscale/status` | stato Tailscale, indirizzo https, dispositivi |
 | GET/POST | `/api/backup/status` · `/api/backup/jobs` · `/api/backup/snapshots` | backup Restic ([docs](docs/restic.md)) |
 
 Se `API_TOKEN_HASH` è impostato, ogni chiamata (tranne health) richiede l'header `X-API-Token`.
-Generalo con `./scripts/gen-api-token.sh`. Dettagli in [docs/security.md](docs/security.md).
+Generalo con `./src/scripts/gen-api-token.sh`. Dettagli in [docs/security.md](docs/security.md).
 
 ## Sicurezza
 
@@ -73,7 +85,7 @@ Generalo con `./scripts/gen-api-token.sh`. Dettagli in [docs/security.md](docs/s
 
 ## Passaggio al Raspberry
 
-- `DATA_DIR` sul mount dell'SSD (ext4 per i dati dei servizi).
+- Quando `start.sh` chiede dove salvare i dati, indica il mount dell'SSD (ext4 per i dati dei servizi).
 - SteamCMD è x86: sul Pi serve emulazione, vedi [docs/steamcmd.md](docs/steamcmd.md).
 - Immich consuma parecchia RAM (soprattutto `immich-machine-learning`): su un Pi con poca memoria valuta di
   disattivarlo e tieni almeno 4 GB.

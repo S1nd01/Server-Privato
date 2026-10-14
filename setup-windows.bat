@@ -3,6 +3,7 @@ rem ============================================================================
 rem  Homeserver - installazione automatica su Windows (WSL2 + Ubuntu + Docker)
 rem  Doppio clic su questo file. Si puo' rilanciare quando vuoi (aggiorna senza
 rem  toccare .env e dati). Facoltativo: setup-windows.bat Ubuntu-24.04
+rem  La prima volta chiede dove salvare i dati dei servizi e i giochi Steam.
 rem ============================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 title Homeserver - installazione automatica
@@ -98,7 +99,7 @@ if "%LP%"=="" (
 echo.
 echo Avvio l'installazione dentro Ubuntu. Ti chiedera' la password di Ubuntu.
 echo.
-wsl -d %DISTRO% -e bash "%LP%/scripts/install-linux.sh" "%LP%"
+wsl -d %DISTRO% -e bash "%LP%/src/scripts/install-linux.sh" "%LP%"
 if errorlevel 1 (
   echo.
   echo L'installazione si e' fermata con un errore: leggi il messaggio qui sopra.

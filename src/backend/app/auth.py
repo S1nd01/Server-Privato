@@ -2,7 +2,7 @@
 
 - In `.env` si conserva solo l'HASH del token (API_TOKEN_HASH=sha256:<hex>), mai il token in chiaro.
   Il token e' casuale a 256 bit: per questo basta SHA-256 (lo "stretching" serve per password umane,
-  qui costerebbe solo CPU a chi manda richieste sbagliate). Si genera con scripts/gen-api-token.sh.
+  qui costerebbe solo CPU a chi manda richieste sbagliate). Si genera con src/scripts/gen-api-token.sh.
 - Il token viene letto SOLO dall'header: mai da URL/query (finirebbe in log e cronologia).
 - Formato rigido (solo [A-Za-z0-9_-], 32-128 caratteri): qualsiasi altra cosa e' rifiutata
   senza essere elaborata ne' riportata nei messaggi d'errore.
@@ -33,7 +33,7 @@ def _expected_digest() -> str | None:
     if configured:
         algo, _, digest = configured.partition(":")
         if algo != "sha256" or not HASH_RE.fullmatch(digest):
-            raise HTTPException(503, "API_TOKEN_HASH non valido: rigenera con scripts/gen-api-token.sh")
+            raise HTTPException(503, "API_TOKEN_HASH non valido: rigenera con src/scripts/gen-api-token.sh")
         return digest
     legacy = os.environ.get("API_TOKEN", "")
     if legacy:
