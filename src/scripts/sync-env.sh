@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Prepara il progetto. Si puo' rilanciare quante volte vuoi: non cancella e non sposta nulla.
 #  - crea il .env se manca (non serve modificarlo a mano)
-#  - la prima volta chiede dove tenere i dati dei servizi e dove scaricare i giochi Steam
-#    (per cambiarli piu' avanti: ./src/scripts/sync-env.sh --percorsi)
-#  - aggiunge al .env le variabili nuove di .env.example SENZA toccare quelle che hai gia'
+#  - salva tutti i dati nella directory data/ del progetto
+#  - aggiunge le variabili nuove al .env e riallinea i percorsi gestiti dallo script
 #  - genera la password di Pi-hole se manca
 #  - crea le cartelle dei dati col tuo utente (altrimenti Docker le crea come root e Jellyfin non parte),
 #    comprese quelle dei giochi Steam
-#  - la prima volta imposta i backup: cartella, passphrase (generate e mostrate UNA volta) e, se vuoi,
-#    il backup notturno di Vaultwarden. Senza domande: HS_BACKUP_DIR=/percorso (o =no), HS_VW_CRON=1
-# Senza domande (script, test): HS_DATA_DIR=/percorso HS_STEAM_GAMES_DIR=/percorso ./src/scripts/sync-env.sh
+#  - la prima volta imposta i backup nella directory data/backups e genera le passphrase
+#    (mostrate UNA volta); il backup notturno di Vaultwarden e' facoltativo.
+# --percorsi e' accettato per compatibilita': i percorsi restano sempre dentro data/.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077
@@ -20,10 +19,14 @@ ASK_PATHS=0
 case "${1:-}" in
   "") ;;
   --percorsi) ASK_PATHS=1 ;;
-  *) die "Opzione sconosciuta: $1 (l'unica e' --percorsi, per cambiare le cartelle)." ;;
+  *) die "Opzione sconosciuta: $1 (l'unica e' --percorsi, per riallineare la configurazione)." ;;
 esac
 INTERACTIVE=0
 if [ -t 0 ]; then INTERACTIVE=1; fi
+project_dir="$(pwd -P)"
+data_dir="$project_dir/data"
+steam_dir="$data_dir/steam-games"
+backup_base="$data_dir/backups"
 
 # ---------------------------------------------------------------- .env
 [ -f .env.example ] || die "Manca .env.example: scompatta di nuovo lo zip del progetto."
@@ -39,7 +42,9 @@ chmod 600 .env
 
 get() { { grep -E "^$1=" .env || true; } | head -n1 | cut -d= -f2-; }
 set_kv() {
-  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+  local key="$1" value="$2" escaped
+  escaped="${value//\\/\\\\}"; escaped="${escaped//&/\\&}"; escaped="${escaped//|/\\|}"
+  if grep -q "^$key=" .env; then sed -i "s|^$key=.*|$key=$escaped|" .env; else printf '%s=%s\n' "$key" "$value" >> .env; fi
 }
 
 added=()
@@ -59,94 +64,39 @@ if ! grep -qE '^PIHOLE_PASSWORD=.+' .env; then
   echo "Password di Pi-hole generata (la trovi nel .env): $pw"
 fi
 
-# ---------------------------------------------------------------- percorsi
-# Stampa il percorso pulito (assoluto, senza caratteri strani), oppure il motivo su stderr e ritorna 1.
-# $1 = quello che ha scritto l'utente, $2 = data (dati dei servizi) | steam (giochi)
-norm_path() {
-  local p="$1" kind="$2" d rest
-  p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"   # niente spazi ai lati
-  p="${p#\"}"; p="${p%\"}"                                         # virgolette se ha trascinato la cartella
-  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME/${p#\~/}" ;; esac
-  if [[ "$p" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then                    # D:\Giochi -> /mnt/d/Giochi (WSL)
-    d="${BASH_REMATCH[1],,}"; rest="${BASH_REMATCH[2]//\\//}"
-    p="/mnt/$d/$rest"
-  fi
-  while [ "${#p}" -gt 1 ] && [ "${p%/}" != "$p" ]; do p="${p%/}"; done
-  case "$p" in /*) ;; *) echo "Il percorso deve iniziare con / oppure con una lettera di disco, per esempio D:\\Giochi" >&2; return 1 ;; esac
-  if [[ ! "$p" =~ ^/[A-Za-z0-9._/@+-]+$ ]]; then
-    echo "Nel percorso usa solo lettere, numeri e . _ - + @ / (niente spazi, accenti o altri simboli: usa per esempio Giochi_Steam)." >&2; return 1
-  fi
-  case "/$p/" in *"/../"*) echo "Il percorso non puo' contenere \"..\"." >&2; return 1 ;; esac
-  case "$p" in /bin|/boot|/dev|/etc|/home|/lib|/proc|/root|/run|/sbin|/sys|/usr|/var)
-    echo "$p e' una cartella di sistema: scegline una tua." >&2; return 1 ;; esac
-  if [ "$kind" = data ] && [[ "$p" =~ ^/mnt/[a-z](/|$) ]]; then
-    echo "I dati dei servizi (database) non funzionano su un disco Windows (NTFS/exFAT): scegli una cartella nel disco di Linux." >&2; return 1
-  fi
-  if [ "$kind" != data ] && [[ "$p" =~ ^/mnt/[a-z]$ ]]; then
-    echo "Indica una cartella dentro il disco, per esempio D:\\Giochi, non il disco intero." >&2; return 1
-  fi
-  printf '%s\n' "$p"
-}
-
-try_mkdir() {
-  if mkdir -p "$1" 2>/dev/null && [ -w "$1" ]; then return 0; fi
-  echo "Non riesco a creare o scrivere in $1 (il disco e' collegato? hai i permessi?)." >&2
-  return 1
-}
-
-# choose_path CHIAVE "domanda" predefinito data|steam
-choose_path() {
-  local key="$1" question="$2" def="$3" kind="$4" envname="HS_$1" ans eof p=""
-  if [ -n "${!envname:-}" ]; then
-    p="$(norm_path "${!envname}" "$kind")" && try_mkdir "$p" || die "$envname non e' utilizzabile."
-  elif [ "$INTERACTIVE" = 1 ]; then
-    while true; do
-      printf '\n%s\n  Invio = %s\n> ' "$question" "$def" >&2
-      eof=0; read -r ans || eof=1
-      if [ -z "${ans//[[:space:]]/}" ]; then ans="$def"; fi
-      if p="$(norm_path "$ans" "$kind")" && try_mkdir "$p"; then break; fi
-      [ "$eof" = 0 ] || die "Input terminato senza un percorso valido."
-    done
-  else
-    p="$(norm_path "$def" "$kind")" && try_mkdir "$p" || die "Il percorso predefinito $def non e' utilizzabile: rilancia da un terminale per sceglierne un altro."
-    echo "Nessun terminale per le domande: uso il percorso predefinito $p" >&2
-  fi
-  set_kv "$key" "$p"
-  echo "$key = $p"
-}
-
-needs_path() {
-  local v; v="$(get "$1")"
-  [ "$ASK_PATHS" = 1 ] || [ -z "$v" ] || [[ "$v" == *CAMBIAMI* ]]
-}
-# un .env vecchio puo' avere ancora il segnaposto /home/CAMBIAMI: lo trasformo nella tua home
-fix_placeholder() { local v="${1/\/home\/CAMBIAMI/$HOME}"; [[ "$v" == *CAMBIAMI* ]] && v=""; printf '%s' "$v"; }
-
+# ---------------------------------------------------------------- percorsi fissi dentro data/
 old_data="$(get DATA_DIR)"
-def_data="$(fix_placeholder "$old_data")"; def_data="${def_data:-$HOME/homeserver-data}"
-if needs_path DATA_DIR; then
-  choose_path DATA_DIR "Dove vuoi tenere i dati dei servizi (database, impostazioni, foto caricate)?
-  Deve essere nel disco di Linux, non un disco Windows come D:\\." "$def_data" data
-fi
-data_dir="$(get DATA_DIR)"
+old_steam="$(get STEAM_GAMES_DIR)"
+old_photos="$(get PHOTOS_DIR)"
+old_media="$(get MEDIA_DIR)"
+old_backup="$(get BACKUP_DIR)"
+old_restic="$(get RESTIC_REPO_DIR)"
+set_kv DATA_DIR "$data_dir"
+set_kv STEAM_GAMES_DIR "$steam_dir"
+set_kv PHOTOS_DIR "$data_dir/photos"
+set_kv MEDIA_DIR "$data_dir/media"
+set_kv BACKUP_DIR "$backup_base/vaultwarden"
+set_kv RESTIC_REPO_DIR "$backup_base/restic"
 
-def_steam="$(fix_placeholder "$(get STEAM_GAMES_DIR)")"; def_steam="${def_steam:-$data_dir/steam-games}"
-if needs_path STEAM_GAMES_DIR; then
-  choose_path STEAM_GAMES_DIR "Dove vuoi scaricare i giochi Steam?
-  Puoi scegliere anche un disco di Windows: D:\\Giochi diventa /mnt/d/Giochi." "$def_steam" steam
-fi
-steam_dir="$(get STEAM_GAMES_DIR)"
-
-if [ "$ASK_PATHS" = 1 ] && [ -n "$old_data" ] && [ "$old_data" != "$data_dir" ] && [ -d "$old_data" ]; then
-  echo "NOTA: i dati gia' salvati restano in $old_data. Per usarli nella nuova cartella spostali a mano (con i servizi fermi)." >&2
-fi
+warn_old_path() {
+  local label="$1" path="$2" expected="$3"
+  if [ -n "$path" ] && [ "$path" != "$expected" ] && [ -d "$path" ]; then
+    echo "NOTA: $label esistenti restano in $path. Per riutilizzarli, spostali in $expected a servizi fermi." >&2
+  fi
+}
+warn_old_path "I dati dei servizi" "$old_data" "$data_dir"
+warn_old_path "I giochi Steam" "$old_steam" "$steam_dir"
+warn_old_path "Le foto" "$old_photos" "$data_dir/photos"
+warn_old_path "I media Jellyfin" "$old_media" "$data_dir/media"
+warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
+warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media panel pihole tailscale restore)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media photos panel pihole tailscale restore steamcmd steam-games immich/upload immich/postgres immich/model-cache vaultwarden caddy/data caddy/config backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
-  mkdir -p "$data_dir" "$steam_dir" 2>/dev/null || return 1
+  mkdir -p "$data_dir" 2>/dev/null || return 1
   for d in "${SUBDIRS[@]}"; do mkdir -p "$data_dir/$d" 2>/dev/null || return 1; done
 }
 mine() { [ "$(stat -c %u "$1")" = "$(id -u)" ]; }
@@ -162,7 +112,7 @@ made=1; make_dirs || made=0
 find_problems
 if [ "$made" = 0 ] || [ "${#fix_flat[@]}" -gt 0 ] || [ "${#fix_deep[@]}" -gt 0 ]; then
   if [ "${#fix_flat[@]}" -eq 0 ] && [ "${#fix_deep[@]}" -eq 0 ]; then
-    die "Non riesco a creare le cartelle in $data_dir e $steam_dir. Per sceglierne altre: ./src/scripts/sync-env.sh --percorsi"
+    die "Non riesco a creare le cartelle in $data_dir: controlla i permessi del progetto."
   fi
   uid="$(id -u):$(id -g)"
   echo "ATTENZIONE: queste cartelle non sono tue (di solito le ha create Docker come root) e Jellyfin non partirebbe:" >&2
@@ -187,7 +137,6 @@ RESTIC_PASS_FILE="$HOME/.restic-pass"
 VW_PASS_FILE="$HOME/.vw-backup-pass"
 CRON_MARK="# homeserver-vaultwarden-backup"
 new_secrets=()
-backup_base=""
 
 make_pass() {   # $1 = file, $2 = nome (per il messaggio). Non sovrascrive mai una passphrase che esiste gia'.
   local f="$1"
@@ -199,30 +148,6 @@ make_pass() {   # $1 = file, $2 = nome (per il messaggio). Non sovrascrive mai u
   ( umask 077; openssl rand -base64 32 > "$f" )
   chmod 600 "$f"
   new_secrets+=("$2|$f")
-}
-
-# imposta backup_base (cartella) oppure lo lascia vuoto se l'utente rinuncia ("no")
-ask_backup_base() {
-  local def="$1" ans eof p envv="${HS_BACKUP_DIR:-}"
-  if [ -n "$envv" ]; then
-    case "${envv,,}" in no|none|0) return 0 ;; esac
-    p="$(norm_path "$envv" backup)" && try_mkdir "$p" || die "HS_BACKUP_DIR non e' utilizzabile."
-    backup_base="$p"
-  elif [ "$INTERACTIVE" = 1 ]; then
-    while true; do
-      printf '\nDove vuoi salvare i backup (Restic e Vaultwarden)?\n  Meglio su un disco diverso da quello dei dati, per esempio un SSD esterno (D:\\Backup).\n  Invio = %s   |   scrivi "no" per non attivarli ora\n> ' "$def" >&2
-      eof=0; read -r ans || eof=1
-      ans="${ans#"${ans%%[![:space:]]*}"}"; ans="${ans%"${ans##*[![:space:]]}"}"
-      if [ "${ans,,}" = no ]; then return 0; fi
-      if [ -z "$ans" ]; then ans="$def"; fi
-      if p="$(norm_path "$ans" backup)" && try_mkdir "$p"; then backup_base="$p"; return 0; fi
-      [ "$eof" = 0 ] || die "Input terminato senza un percorso valido."
-    done
-  else
-    p="$(norm_path "$def" backup)" && try_mkdir "$p" || die "Il percorso predefinito $def non e' utilizzabile: rilancia da un terminale per sceglierne un altro."
-    backup_base="$p"
-    echo "Nessun terminale per le domande: backup nel percorso predefinito $p" >&2
-  fi
 }
 
 # backup automatico di Vaultwarden ogni notte alle 03:00 (crontab dell'utente, senza duplicati)
@@ -239,20 +164,9 @@ install_cron() {
 }
 
 setup_backup() {
-  local def="$HOME/homeserver-backups" cur ans="" do_cron=""
-  cur="$(get RESTIC_REPO_DIR)"
-  if [ "$ASK_PATHS" != 1 ] && [ -n "$cur" ] && [ -n "$(get RESTIC_PASSWORD_FILE)" ] && [ -n "$(get BACKUP_PASSPHRASE_FILE)" ]; then
-    set_kv BACKUP_SETUP done      # backup gia' configurati a mano: li rispetto
-    return 0
-  fi
-  if [ -n "$cur" ] && [ "$(basename "$cur")" = restic ]; then def="$(dirname "$cur")"; fi
-  ask_backup_base "$def"
-  if [ -z "$backup_base" ]; then
-    set_kv BACKUP_SETUP skipped
-    echo "Backup non attivati. Per attivarli piu' avanti: ./src/scripts/sync-env.sh --percorsi" >&2
-    return 0
-  fi
-  try_mkdir "$backup_base/restic" && try_mkdir "$backup_base/vaultwarden" || die "Non riesco a creare le cartelle dei backup in $backup_base."
+  local ans="" do_cron="${HS_VW_CRON:-}" first_setup=0
+  [ "$(get BACKUP_SETUP)" = done ] || first_setup=1
+  mkdir -p "$backup_base/restic" "$backup_base/vaultwarden" || die "Non riesco a creare le cartelle dei backup in $backup_base."
   set_kv RESTIC_REPO_DIR "$backup_base/restic"
   set_kv BACKUP_DIR "$backup_base/vaultwarden"
   if [ -z "$(get RESTIC_PASSWORD_FILE)" ]; then make_pass "$RESTIC_PASS_FILE" Restic; set_kv RESTIC_PASSWORD_FILE "$RESTIC_PASS_FILE"; fi
@@ -282,7 +196,7 @@ setup_backup() {
   fi
 
   do_cron="${HS_VW_CRON:-}"
-  if [ -z "$do_cron" ] && [ "$INTERACTIVE" = 1 ]; then
+  if [ -z "$do_cron" ] && [ "$INTERACTIVE" = 1 ] && { [ "$ASK_PATHS" = 1 ] || [ "$first_setup" = 1 ]; }; then
     printf '\nBackup automatico di Vaultwarden ogni notte alle 03:00? [S/n] ' >&2
     read -r ans || ans="n"
     case "$ans" in [nN]*) do_cron=0 ;; *) do_cron=1 ;; esac
@@ -290,12 +204,12 @@ setup_backup() {
   if [ "$do_cron" = 1 ]; then
     install_cron
   else
-    echo "Backup automatico di Vaultwarden non attivato: a mano con ./src/scripts/backup-vaultwarden.sh (o HS_VW_CRON=1 per attivarlo)." >&2
+    echo "Backup automatico di Vaultwarden non attivato: a mano con ./src/scripts/backup-vaultwarden.sh (HS_VW_CRON=1 per attivarlo)." >&2
   fi
 }
 
-if [ "$ASK_PATHS" = 1 ] || [ -z "$(get BACKUP_SETUP)" ]; then setup_backup; fi
+if [ "$ASK_PATHS" = 1 ] || [ "$(get BACKUP_SETUP)" != done ]; then setup_backup; fi
 
-echo "Cartelle pronte: dati in $data_dir, giochi Steam in $steam_dir"
+echo "Cartelle pronte: tutti i dati sono in $data_dir"
 echo "Variabili aggiunte al .env: ${added[*]:-nessuna}"
 if [ -n "$(get RESTIC_REPO_DIR)" ]; then echo "Backup: Restic in $(get RESTIC_REPO_DIR), Vaultwarden in $(get BACKUP_DIR)"; fi

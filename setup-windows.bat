@@ -1,9 +1,9 @@
 @echo off
 rem ============================================================================
 rem  Homeserver - installazione automatica su Windows (WSL2 + Ubuntu + Docker)
-rem  Doppio clic su questo file. Si puo' rilanciare quando vuoi (aggiorna senza
-rem  toccare .env e dati). Facoltativo: setup-windows.bat Ubuntu-24.04
-rem  La prima volta chiede dove salvare i dati dei servizi e i giochi Steam.
+rem  Doppio clic su questo file. Si puo' rilanciare quando vuoi (aggiorna il
+rem  codice senza cancellare dati). Facoltativo: setup-windows.bat Ubuntu-24.04
+rem  Tutti i dati vengono salvati in data/ dentro il progetto.
 rem ============================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 title Homeserver - installazione automatica

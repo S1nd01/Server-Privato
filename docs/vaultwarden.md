@@ -87,19 +87,19 @@ si possa decifrare e leggere.
 
 La passphrase sta in un file (non nella riga di comando, dove si vedrebbe con `ps`). **Non serve crearla a mano**:
 l'installazione (`setup-windows.bat`, `start.sh` o `./src/scripts/sync-env.sh`) la genera in `~/.vw-backup-pass`
-(permessi 600), imposta `BACKUP_PASSPHRASE_FILE` e `BACKUP_DIR` nel `.env` (cartella `<backup>/vaultwarden`, la
-stessa scelta per Restic), te la mostra una volta sola e, se vuoi, attiva il backup notturno (vedi sotto).
+(permessi 600), imposta `BACKUP_PASSPHRASE_FILE` e `BACKUP_DIR` nel `.env` (`data/backups/vaultwarden`, accanto
+all'archivio Restic), te la mostra una volta sola e, se vuoi, attiva il backup notturno (vedi sotto).
 
 **Copia la passphrase anche fuori dal server** (es. nel tuo password manager *cloud*, non in questo Vaultwarden):
 senza di lei i backup non si aprono più. Lo script si rifiuta di creare backup in chiaro, di usare una passphrase
 sotto i 20 caratteri o un file con permessi diversi da 600.
 
 ```bash
-./src/scripts/backup-vaultwarden.sh      # a mano: usa BACKUP_DIR e la passphrase del .env
+./src/scripts/backup-vaultwarden.sh      # a mano: salva in data/backups/vaultwarden
 ```
 
 Se all'installazione hai risposto sì alla domanda sul backup automatico, ogni notte alle 03:00 parte da solo
-(riga nel `crontab` dell'utente, con l'esito in `<cartella backup>/vaultwarden/backup.log`). Per attivarlo dopo:
+(riga nel `crontab` dell'utente, con l'esito in `data/backups/vaultwarden/backup.log`). Per attivarlo dopo:
 `HS_VW_CRON=1 ./src/scripts/sync-env.sh --percorsi`, oppure a mano con `crontab -e`:
 `0 3 * * * cd /percorso/homeserver && ./src/scripts/backup-vaultwarden.sh`.
 

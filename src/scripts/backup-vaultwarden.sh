@@ -6,17 +6,18 @@
 #   umask 077; openssl rand -base64 32 > ~/.vw-backup-pass     # poi copiala anche FUORI dal server!
 #   in .env:  BACKUP_PASSPHRASE_FILE=/home/<utente>/.vw-backup-pass
 #
-# Uso: BACKUP_DIR=/percorso ./src/scripts/backup-vaultwarden.sh   (default: ./backups, ultime 14 copie)
+# Uso: ./src/scripts/backup-vaultwarden.sh (salva in data/backups/vaultwarden, ultime 14 copie)
 # Senza passphrase lo script SI RIFIUTA di creare backup in chiaro (a meno di ALLOW_PLAINTEXT_BACKUP=1).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; [ -f .env ] && . ./.env; set +a
 umask 077
 
-BACKUP_DIR="${BACKUP_DIR:-./backups}"
 KEEP="${KEEP:-14}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-SRC="${DATA_DIR:?DATA_DIR non impostato}/vaultwarden"
+DATA_DIR="$PWD/data"
+BACKUP_DIR="$DATA_DIR/backups/vaultwarden"
+SRC="$DATA_DIR/vaultwarden"
 PASS_FILE="${BACKUP_PASSPHRASE_FILE:-}"
 
 if [ -n "$PASS_FILE" ]; then

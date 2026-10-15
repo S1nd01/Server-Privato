@@ -30,13 +30,11 @@ Un solo download alla volta (SteamCMD condivide la cartella di config): un secon
 | Cosa | Dove | Filesystem |
 |---|---|---|
 | Config/token di SteamCMD | `$DATA_DIR/steamcmd` | **Linux (ext4)**: usa symlink, su exFAT/NTFS si rompe |
-| Giochi scaricati | `$STEAM_GAMES_DIR` | Per l'SSD da usare su Windows: **exFAT** o NTFS |
+| Giochi scaricati | `$DATA_DIR/steam-games` | **Linux (ext4)**, come il resto dei dati del progetto |
 
-Un SSD ext4 non si legge su Windows senza driver aggiuntivi: formattalo exFAT. Database di Immich e Vaultwarden
-restano invece su `DATA_DIR` (ext4), mai su exFAT.
-
-Montaggio su Linux (esempio): `sudo mount -o uid=1000,gid=1000 /dev/sdX1 /mnt/ssd`, poi
-scegli `/mnt/ssd/steam-games` quando `start.sh` chiede dove scaricare i giochi (o dopo, con `./src/scripts/sync-env.sh --percorsi`). Prima di staccare il disco: attendi la fine del download, `sync`, `umount`.
+I percorsi sono fissi e vengono preparati da `./src/scripts/sync-env.sh` dentro `data/` nel progetto.
+Non spostare giochi o configurazione su partizioni NTFS/exFAT: database, token e giochi sono mantenuti sul
+filesystem Linux (ext4).
 
 ## Usare i giochi sul PC Windows
 

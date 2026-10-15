@@ -29,9 +29,9 @@ services:
       STEAMCMD_IMAGE: ${STEAMCMD_IMAGE:-steamcmd/steamcmd:latest}
       # percorsi HOST (per i container figli lanciati dal backend)
       HOST_STEAM_CONFIG_DIR: ${DATA_DIR}/steamcmd
-      HOST_STEAM_GAMES_DIR: ${STEAM_GAMES_DIR:?Cartella dei giochi Steam non scelta - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
-      HOST_DATA_DIR: ${DATA_DIR:?Cartella dei dati non scelta - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
-      HOST_PHOTOS_DIR: ${PHOTOS_DIR:-}
+      HOST_STEAM_GAMES_DIR: ${STEAM_GAMES_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
+      HOST_DATA_DIR: ${DATA_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
+      HOST_PHOTOS_DIR: ${DATA_DIR}/photos
       RESTIC_IMAGE: ${RESTIC_IMAGE:-restic/restic:latest}
       RESTIC_REPO_DIR: ${RESTIC_REPO_DIR:-}
       RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
@@ -45,8 +45,8 @@ services:
       - ${STEAM_GAMES_DIR}:/data/games
       # sola lettura: servono al backend per sapere cosa c'e' da salvare e se l'archivio e' pronto
       - ${DATA_DIR}:/data/datadir:ro
-      - ${PHOTOS_DIR:-${DATA_DIR}/photos}:/data/photos:ro
-      - ${RESTIC_REPO_DIR:-${DATA_DIR}/panel}:/data/restic-repo:ro
+      - ${DATA_DIR}/photos:/data/photos:ro
+      - ${DATA_DIR}/backups/restic:/data/restic-repo:ro
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/data/restic-pass:ro
       - ${DATA_DIR}/panel:/data/panel   # stato della pianificazione
     restart: unless-stopped
@@ -91,7 +91,7 @@ services:
     image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
     container_name: immich_machine_learning
     volumes:
-      - immich-model-cache:/cache
+      - ${DATA_DIR}/immich/model-cache:/cache
     restart: unless-stopped
 
   immich-redis:
@@ -121,7 +121,7 @@ services:
     volumes:
       - ${DATA_DIR}/jellyfin/config:/config
       - ${DATA_DIR}/jellyfin/cache:/cache
-      - ${MEDIA_DIR:-${DATA_DIR}/media}:/media:ro
+      - ${DATA_DIR}/media:/media:ro
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8096:8096"
     restart: unless-stopped
@@ -150,8 +150,8 @@ services:
       - "${BIND_ADDR:-127.0.0.1}:${VW_PORT:-8443}:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data   # contiene la CA locale: non cancellarlo o dovrai rifare la fiducia sui dispositivi
-      - caddy-config:/config
+      - ${DATA_DIR}/caddy/data:/data   # contiene la CA locale: non cancellarlo o dovrai rifare la fiducia sui dispositivi
+      - ${DATA_DIR}/caddy/config:/config
     depends_on:
       - vaultwarden
     restart: unless-stopped
@@ -193,11 +193,6 @@ services:
       RESTIC_REPOSITORY: /repo
       RESTIC_PASSWORD_FILE: /run/restic-pass
     volumes:
-      - ${RESTIC_REPO_DIR:-${DATA_DIR}/panel}:/repo
+      - ${DATA_DIR}/backups/restic:/repo
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/run/restic-pass:ro
       - ${DATA_DIR}/restore:/restore
-
-volumes:
-  immich-model-cache:
-  caddy-data:
-  caddy-config:

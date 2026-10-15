@@ -24,6 +24,7 @@ homeserver/
 ├── tailscale/   serve.json: quali servizi sono pubblicati in HTTPS nella tua rete
 ├── caddy/       Caddyfile (HTTPS per Vaultwarden)
 ├── docs/        guide per servizio
+├── data/        dati persistenti, librerie, giochi Steam e backup (creata all'avvio)
 ├── compose.yaml
 └── .env.example
 ```
@@ -39,21 +40,24 @@ Doppio clic su `setup-windows.bat` (guida: [docs/windows.md](docs/windows.md), c
 ./src/scripts/start.sh           # prepara tutto e avvia i container
 ```
 
-Non serve toccare il `.env`: la prima volta `start.sh` (tramite `sync-env.sh`) lo crea, ti **chiede dove salvare i dati
-dei servizi e dove scaricare i giochi Steam** (Invio = cartelle predefinite nella tua home), crea le cartelle col tuo
-utente, comprese `steam-games`, e poi lancia `docker compose up -d --build --remove-orphans`.
+Non serve toccare il `.env`: la prima volta `start.sh` (tramite `sync-env.sh`) lo crea e prepara tutte le directory
+in `data/` dentro il progetto. Servizi, foto, media, giochi Steam e backup non hanno percorsi configurabili
+dall'utente.
 
-- La prima volta imposta anche i **backup**: ti chiede dove salvarli, genera le passphrase di Restic e di Vaultwarden
+- La prima volta imposta anche i **backup** in `data/backups/`, genera le passphrase di Restic e di Vaultwarden
   (le mostra **una volta sola**: copiale fuori dal server) e, se vuoi, attiva il backup notturno di Vaultwarden.
   Dopo, nel pannello, sezione Backup, premi *Prepara l'archivio*. Vedi [docs/restic.md](docs/restic.md).
-- Cambiare le cartelle più avanti: `./src/scripts/sync-env.sh --percorsi` (i dati già salvati non vengono spostati,
-  le passphrase già create restano quelle).
+- `./src/scripts/sync-env.sh --percorsi` riallinea il `.env` ai percorsi fissi in `data/`; non sposta dati già esistenti
+  e lascia invariate le passphrase già create.
 - Se le cartelle dei dati mancano o non sono tue (di solito perché hai lanciato `docker compose up` a mano), il pannello
   mostra un avviso e basta rilanciare `./src/scripts/sync-env.sh`. Con i percorsi non ancora scelti, `docker compose`
   si ferma con lo stesso consiglio.
 
 **Aggiornare da una versione precedente:** estrai il nuovo zip, copia dentro il tuo `.env`, poi `./src/scripts/start.sh`
-(`--remove-orphans` toglie il vecchio WireGuard).
+(`--remove-orphans` toglie il vecchio WireGuard). Lo script riallinea i percorsi a `data/`, ma **non sposta**
+automaticamente dati o archivi che si trovano altrove: copia i dati a servizi fermi dopo aver verificato il messaggio
+di avviso. La CA locale di Caddy usata dalle versioni precedenti nei volumi Docker non viene trasferita; dopo
+l'aggiornamento potrebbe essere necessario fidarsi nuovamente della CA sui dispositivi.
 
 - Pannello: http://localhost:8088
 - Immich: http://localhost:2283 · Jellyfin: http://localhost:8096 · Pi-hole: http://localhost:8053/admin
@@ -85,7 +89,7 @@ Generalo con `./src/scripts/gen-api-token.sh`. Dettagli in [docs/security.md](do
 
 ## Passaggio al Raspberry
 
-- Quando `start.sh` chiede dove salvare i dati, indica il mount dell'SSD (ext4 per i dati dei servizi).
+- Tutti i dati restano in `data/` dentro il progetto sul filesystem Linux (ext4).
 - SteamCMD è x86: sul Pi serve emulazione, vedi [docs/steamcmd.md](docs/steamcmd.md).
 - Immich consuma parecchia RAM (soprattutto `immich-machine-learning`): su un Pi con poca memoria valuta di
   disattivarlo e tieni almeno 4 GB.

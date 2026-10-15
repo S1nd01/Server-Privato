@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Comando unico per costruire e avviare tutto: prepara il .env e le cartelle (la prima volta chiede dove
-# salvare i dati e i giochi Steam), poi lancia docker compose. Argomenti extra vanno a docker compose:
+# Comando unico per costruire e avviare tutto: prepara il .env e le cartelle dati/, poi lancia docker compose.
+# Argomenti extra vanno a docker compose:
 #   ./src/scripts/start.sh            -> up -d --build --remove-orphans
 #   ./src/scripts/start.sh frontend   -> solo quel servizio
 set -euo pipefail

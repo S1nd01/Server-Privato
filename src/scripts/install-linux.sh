@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installazione automatica DENTRO Ubuntu (WSL o Linux). Lo lancia setup-windows.bat, ma si puo' usare anche a mano:
 #   bash install-linux.sh <cartella-con-il-progetto>
-# Si puo' rilanciare quante volte vuoi: non tocca il .env e i dati che ci sono gia'.
-# Le cartelle dei dati le sceglie l'utente con una domanda (sync-env.sh): non serve modificare il .env a mano.
+# Si puo' rilanciare quante volte vuoi: conserva le impostazioni del .env e i dati gia' presenti.
+# Tutti i dati vengono salvati in data/ dentro il progetto: non serve modificare il .env a mano.
 set -euo pipefail
 
 say() { printf '\n== %s\n' "$*"; }
@@ -57,8 +57,8 @@ else
 fi
 
 # ---------------------------------------------------------------- 3. .env, percorsi e cartelle
-say "3/6 Preparo il .env e scelgo le cartelle (dati dei servizi e giochi Steam)"
-# crea il .env se manca, chiede dove salvare i dati e i giochi, crea le cartelle col tuo utente
+say "3/6 Preparo il .env e le cartelle dati del progetto"
+# crea il .env se manca e le cartelle sotto data/ col tuo utente
 ./src/scripts/sync-env.sh
 
 # ---------------------------------------------------------------- 4. Tailscale

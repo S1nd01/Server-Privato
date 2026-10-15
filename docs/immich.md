@@ -9,7 +9,10 @@ Backup e galleria foto. Quattro container: `immich_server` (web + API, porta 228
 |---|---|
 | Database | `$DATA_DIR/immich/postgres` — **solo ext4**, mai exFAT/NTFS né condivisioni di rete |
 | Miniature, video ricodificati, eventuali caricamenti | `$DATA_DIR/immich/upload` |
-| Le tue foto già esistenti | `$PHOTOS_DIR` (default `$DATA_DIR/photos`), visibili a Immich come `/mnt/photos` in sola lettura |
+| Le tue foto già esistenti | `$DATA_DIR/photos`, visibili a Immich come `/mnt/photos` in sola lettura |
+
+Per usare una libreria esterna, copia le foto in `data/photos` dentro il progetto: i percorsi non si configurano
+separatamente.
 
 `IMMICH_DB_PASSWORD`: usa solo lettere e numeri e **sceglila prima del primo avvio**. Il database viene creato con
 quella password: cambiarla dopo richiede di cancellare `$DATA_DIR/immich/postgres` (e perdere l'indice).

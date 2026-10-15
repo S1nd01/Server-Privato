@@ -211,7 +211,26 @@ def _host() -> dict:
 # ---------------------------------------------------------------- cartelle dei dati
 DATA_ROOT = "/data/datadir"
 # Le crea src/scripts/sync-env.sh col tuo utente: tienile uguali a SUBDIRS di quello script.
-EXPECTED_DIRS = ["jellyfin/config", "jellyfin/cache", "media", "panel", "pihole", "tailscale", "restore"]
+EXPECTED_DIRS = [
+    "jellyfin/config",
+    "jellyfin/cache",
+    "media",
+    "photos",
+    "panel",
+    "pihole",
+    "tailscale",
+    "restore",
+    "steamcmd",
+    "steam-games",
+    "immich/upload",
+    "immich/postgres",
+    "immich/model-cache",
+    "vaultwarden",
+    "caddy/data",
+    "caddy/config",
+    "backups/restic",
+    "backups/vaultwarden",
+]
 
 
 def _setup() -> dict | None:
