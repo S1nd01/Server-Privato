@@ -109,6 +109,7 @@ Fatto. Apri nel browser di Windows:
   Pannello   http://localhost:8088
   Immich     http://localhost:2283
   Jellyfin   http://localhost:8096
+  Seerr      http://localhost:5055   (con Radarr 7878, Sonarr 8989, Prowlarr 9696, qBittorrent 8080: docs/seerr.md)
   Pi-hole    http://localhost:8053/admin
   Vaultwarden https://localhost:8443
 

@@ -1,6 +1,6 @@
 # Backup con Restic
 
-Salva Vaultwarden, le foto di Immich, la configurazione di Pi-hole e di Jellyfin in un archivio **cifrato** (AES-256 con autenticazione) e deduplicato: ogni giorno si aggiunge solo ciò che è cambiato.
+Salva Vaultwarden, le foto di Immich, la configurazione di Pi-hole, Jellyfin e dei servizi di download in un archivio **cifrato** (AES-256 con autenticazione) e deduplicato: ogni giorno si aggiunge solo ciò che è cambiato.
 
 ## Attivazione
 
@@ -20,8 +20,9 @@ Dopo, parte da solo ogni giorno all'ora di `RESTIC_SCHEDULE` (03:30): backup, po
 
 ## Cosa viene salvato
 
-`vaultwarden`, `immich/upload` (foto e i dump automatici del database), `pihole`, `jellyfin/config` e `photos`.
-Miniature e video convertiti sono esclusi (si rigenerano).
+`vaultwarden`, `immich/upload` (foto e i dump automatici del database), `pihole`, `jellyfin/config`, le configurazioni di
+`seerr`, `radarr`, `sonarr`, `prowlarr` e `qbittorrent`, e `photos`. Film, serie e download in `media/` **non** sono inclusi.
+Miniature, video convertiti, registri e locandine di Radarr/Sonarr sono esclusi (si rigenerano).
 Prima del backup Vaultwarden viene copiato in modo coerente; se non riesce, il backup parte comunque e te lo dice.
 
 **Verifica una volta** in Immich (Amministrazione, Impostazioni, *Backup del database*) che i dump automatici siano attivi: il database non viene copiato mentre è in uso.

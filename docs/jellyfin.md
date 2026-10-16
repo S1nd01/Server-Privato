@@ -1,8 +1,11 @@
 # Jellyfin (film, serie, musica)
 
-1. Metti i file in `$DATA_DIR/media` (dentro `data/` nel progetto), per esempio `Film/`, `Serie/`, `Musica/`. Jellyfin li legge in sola lettura.
+1. I file stanno in `$DATA_DIR/media` (dentro `data/` nel progetto). Lo script crea `Film/`, `Serie TV/`, `Discoveries/` e `downloads/`; aggiungi
+   a mano altre cartelle (per esempio `Musica/`). Jellyfin le legge in sola lettura, tranne `Discoveries/` (la usa il plugin JellyBridge, vedi [seerr.md](seerr.md)).
+   Radarr e Sonarr riempiono `Film/` e `Serie TV/` da soli.
 2. `./src/scripts/sync-env.sh` (crea le cartelle col tuo utente) e `docker compose up -d jellyfin`.
-3. Apri http://localhost:8096 (o `https://<nome>.ts.net:8096` da fuori casa) e segui la procedura guidata: crea l'utente, poi *Aggiungi libreria* e scegli `/media/...`.
+3. Apri http://localhost:8096 (o `https://<nome>.ts.net:8096` da fuori casa) e segui la procedura guidata: crea l'utente, poi *Aggiungi libreria*
+   e scegli `/media/Film` (tipo Film) e `/media/Serie TV` (tipo Serie). Non aggiungere `/media/downloads`.
 4. App per telefono e TV: cerca *Jellyfin*; come server usa l'indirizzo qui sopra.
 
 Note:

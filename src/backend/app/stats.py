@@ -215,6 +215,15 @@ EXPECTED_DIRS = [
     "jellyfin/config",
     "jellyfin/cache",
     "media",
+    "media/Film",
+    "media/Serie TV",
+    "media/Discoveries",
+    "media/downloads",
+    "seerr/config",
+    "radarr/config",
+    "sonarr/config",
+    "prowlarr/config",
+    "qbittorrent/config",
     "photos",
     "panel",
     "pihole",
@@ -239,11 +248,14 @@ def _setup() -> dict | None:
         return None
     missing = [d for d in EXPECTED_DIRS if not os.path.isdir(os.path.join(DATA_ROOT, d))]
     root_owned = []
-    try:
-        if os.stat(os.path.join(DATA_ROOT, "jellyfin")).st_uid == 0:  # Jellyfin gira col tuo utente, non come root
-            root_owned.append("jellyfin")
-    except OSError:
-        pass
+    # Jellyfin e gli strumenti di download girano col tuo utente, non come root: se la cartella e' di root
+    # (l'ha creata Docker) non riescono a scriverci. media/Discoveries e' dove scrive JellyBridge.
+    for d in ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "qbittorrent", "media/Discoveries", "media/downloads"):
+        try:
+            if os.stat(os.path.join(DATA_ROOT, d)).st_uid == 0:
+                root_owned.append(d)
+        except OSError:
+            pass
     return {"missing": missing, "root_owned": root_owned}
 
 

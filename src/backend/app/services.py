@@ -28,6 +28,20 @@ SERVICES = {
         "scheme": "http",
         "url_port": 8096,
     },
+    "seerr": {
+        "name": "Seerr",
+        "description": "Richieste di film e serie (con JellyBridge in Jellyfin)",
+        "containers": ["seerr"],
+        "scheme": "http",
+        "url_port": 5055,
+    },
+    "download": {
+        "name": "Download automatici",
+        "description": "Radarr, Sonarr, Prowlarr e qBittorrent: scaricano ciò che chiedi in Seerr",
+        "containers": ["qbittorrent", "prowlarr", "radarr", "sonarr"],
+        "scheme": "http",
+        "url_port": None,  # quattro interfacce, nessun link unico: porte in docs/seerr.md
+    },
     "vaultwarden": {
         "name": "Vaultwarden",
         "description": "Password manager compatibile con Bitwarden",

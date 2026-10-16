@@ -40,8 +40,18 @@ STATE_FILE = Path("/data/panel/state.json")
 
 # Cosa si salva (relativo a DATA_DIR). Il database di Immich NON e' qui: la cartella di Postgres in uso non
 # e' copiabile in modo coerente; Immich scrive da solo i dump del database in immich/upload/backups.
-SOURCES = ["vaultwarden", "immich/upload", "pihole", "jellyfin/config"]
+SOURCES = [
+    "vaultwarden", "immich/upload", "pihole", "jellyfin/config",
+    "seerr/config", "radarr/config", "sonarr/config", "prowlarr/config", "qbittorrent/config",
+]
 EXCLUDES = [
+    "seerr/config/logs",
+    "radarr/config/logs",
+    "radarr/config/MediaCover",      # locandine: si riscaricano
+    "sonarr/config/logs",
+    "sonarr/config/MediaCover",
+    "prowlarr/config/logs",
+    "qbittorrent/config/qBittorrent/logs",
     "immich/upload/thumbs",          # rigenerabili
     "immich/upload/encoded-video",   # rigenerabili
     "vaultwarden/icon_cache",

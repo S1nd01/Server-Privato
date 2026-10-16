@@ -7,6 +7,8 @@ Pannello minimale (frontend + backend/API) per gestire un home server in Docker:
 | Immich | Backup e galleria foto | [docs/immich.md](docs/immich.md) |
 | Vaultwarden | Password manager (compatibile Bitwarden), dietro Caddy/HTTPS | [docs/vaultwarden.md](docs/vaultwarden.md) |
 | Jellyfin | Film, serie e musica | [docs/jellyfin.md](docs/jellyfin.md) |
+| Seerr + JellyBridge | Richieste di film e serie direttamente da Jellyfin | [docs/seerr.md](docs/seerr.md) |
+| Radarr, Sonarr, Prowlarr, qBittorrent | Scaricano ciò che viene richiesto in Seerr | [docs/seerr.md](docs/seerr.md) |
 | Pi-hole | Blocco pubblicità e tracker (DNS) | [docs/pihole.md](docs/pihole.md) |
 | Tailscale | Accesso da fuori casa, in HTTPS, senza aprire porte sul router | [docs/tailscale.md](docs/tailscale.md) |
 | Restic | Backup cifrato e automatico (AES-256) | [docs/restic.md](docs/restic.md) |
@@ -61,6 +63,7 @@ l'aggiornamento potrebbe essere necessario fidarsi nuovamente della CA sui dispo
 
 - Pannello: http://localhost:8088
 - Immich: http://localhost:2283 · Jellyfin: http://localhost:8096 · Pi-hole: http://localhost:8053/admin
+- Seerr: http://localhost:5055 · Radarr: :7878 · Sonarr: :8989 · Prowlarr: :9696 · qBittorrent: :8080 (configurazione in [docs/seerr.md](docs/seerr.md))
 - Vaultwarden: https://localhost:8443 (leggi prima la sezione "Fidarsi della CA" in `docs/vaultwarden.md`)
 
 Avvio parziale: `docker compose up -d --build frontend backend caddy vaultwarden`.
@@ -70,7 +73,7 @@ Avvio parziale: `docker compose up -d --build frontend backend caddy vaultwarden
 | Metodo | Path | Descrizione |
 |---|---|---|
 | GET | `/api/health` | stato backend (sempre senza token) |
-| GET | `/api/services` · `/api/services/{id}` | stato dei servizi Docker (`immich`, `jellyfin`, `vaultwarden`, `pihole`, `tailscale`) |
+| GET | `/api/services` · `/api/services/{id}` | stato dei servizi Docker (`immich`, `jellyfin`, `seerr`, `download`, `vaultwarden`, `pihole`, `tailscale`) |
 | POST | `/api/services/{id}/start` · `stop` · `restart` | azione sul servizio |
 | GET | `/api/stats` | uso di risorse: server (CPU, RAM, dischi, temperatura) e per servizio (CPU, RAM, tempo di attività, salute, riavvii); `setup` segnala cartelle dei dati mancanti |
 | POST/GET/DELETE | `/api/steam/downloads…` · GET `/api/steam/library` | download SteamCMD ([docs](docs/steamcmd.md)) |
@@ -91,5 +94,7 @@ Generalo con `./src/scripts/gen-api-token.sh`. Dettagli in [docs/security.md](do
 
 - Tutti i dati restano in `data/` dentro il progetto sul filesystem Linux (ext4).
 - SteamCMD è x86: sul Pi serve emulazione, vedi [docs/steamcmd.md](docs/steamcmd.md).
+- Radarr, Sonarr, Prowlarr e qBittorrent occupano circa 1-1,5 GB di RAM insieme: dal pannello si spengono con un solo
+  interruttore (**Download automatici**), vedi [docs/seerr.md](docs/seerr.md).
 - Immich consuma parecchia RAM (soprattutto `immich-machine-learning`): su un Pi con poca memoria valuta di
   disattivarlo e tieni almeno 4 GB.

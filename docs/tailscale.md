@@ -29,13 +29,14 @@ Senza chiave: apri il pannello (http://localhost:8088, sezione Rete) e usa il pu
 | `https://<nome>.ts.net:8096` | Jellyfin |
 | `https://<nome>.ts.net:8443` | Vaultwarden |
 | `https://<nome>.ts.net:8053/admin` | Pi-hole |
+| `https://<nome>.ts.net:5055` | Seerr (richieste di film e serie) |
 
 L'elenco è nel file `tailscale/serve.json`.
 
 ## Da sapere
 
 - Il pannello è raggiungibile da qualunque tuo dispositivo nella rete Tailscale: resta protetto dal token.
-- Se `docker compose exec tailscale tailscale serve status` non elenca le 5 porte, il file `serve.json` non è stato letto: controlla `docker compose logs tailscale`.
+- Se `docker compose exec tailscale tailscale serve status` non elenca le 6 porte, il file `serve.json` non è stato letto: controlla `docker compose logs tailscale`.
 - Il nome `.ts.net` compare nei registri pubblici dei certificati (si vede che esiste, non cosa contiene).
 - Il container usa la modalità "userspace": non serve `NET_ADMIN`, ma il server stesso non vede gli altri dispositivi (basta per questo uso).
 - Per usare il server come uscita (exit node) o raggiungere la LAN di casa servono impostazioni in più: non sono attivate.

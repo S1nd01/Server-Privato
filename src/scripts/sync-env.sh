@@ -5,7 +5,7 @@
 #  - aggiunge le variabili nuove al .env e riallinea i percorsi gestiti dallo script
 #  - genera la password di Pi-hole se manca
 #  - crea le cartelle dei dati col tuo utente (altrimenti Docker le crea come root e Jellyfin non parte),
-#    comprese quelle dei giochi Steam
+#    comprese quelle dei giochi Steam e dei media (Film, Serie TV, Discoveries, downloads)
 #  - la prima volta imposta i backup nella directory data/backups e genera le passphrase
 #    (mostrate UNA volta); il backup notturno di Vaultwarden e' facoltativo.
 # --percorsi e' accettato per compatibilita': i percorsi restano sempre dentro data/.
@@ -92,7 +92,7 @@ warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
 warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media photos panel pihole tailscale restore steamcmd steam-games immich/upload immich/postgres immich/model-cache vaultwarden caddy/data caddy/config backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config photos panel pihole tailscale restore steamcmd steam-games immich/upload immich/postgres immich/model-cache vaultwarden caddy/data caddy/config backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
@@ -104,8 +104,14 @@ mine() { [ "$(stat -c %u "$1")" = "$(id -u)" ]; }
 find_problems() {
   fix_flat=(); fix_deep=()
   if [ -d "$data_dir" ] && [ ! -w "$data_dir" ]; then fix_flat+=("$data_dir"); fi
-  # Jellyfin gira col tuo utente (PUID): la sua cartella deve essere tua
-  if [ -e "$data_dir/jellyfin" ] && ! mine "$data_dir/jellyfin"; then fix_deep+=("$data_dir/jellyfin"); fi
+  # Jellyfin e gli strumenti di download girano col tuo utente (PUID): le loro cartelle devono essere tue.
+  # media/Discoveries e media/downloads sono quelle dove scrivono JellyBridge e qBittorrent (stessa lista in stats.py)
+  local d
+  for d in jellyfin radarr sonarr prowlarr qbittorrent media/Discoveries media/downloads; do
+    if [ -e "$data_dir/$d" ] && ! mine "$data_dir/$d"; then fix_deep+=("$data_dir/$d"); fi
+  done
+  # Seerr gira come utente 1000 (non col PUID): qui basta che la cartella non sia di root
+  if [ "$(id -u)" != 0 ] && [ -e "$data_dir/seerr" ] && [ "$(stat -c %u "$data_dir/seerr")" = 0 ]; then fix_deep+=("$data_dir/seerr"); fi
 }
 
 made=1; make_dirs || made=0
@@ -115,7 +121,7 @@ if [ "$made" = 0 ] || [ "${#fix_flat[@]}" -gt 0 ] || [ "${#fix_deep[@]}" -gt 0 ]
     die "Non riesco a creare le cartelle in $data_dir: controlla i permessi del progetto."
   fi
   uid="$(id -u):$(id -g)"
-  echo "ATTENZIONE: queste cartelle non sono tue (di solito le ha create Docker come root) e Jellyfin non partirebbe:" >&2
+  echo "ATTENZIONE: queste cartelle non sono tue (di solito le ha create Docker come root) e Jellyfin, Radarr, Sonarr e gli altri non riuscirebbero a scriverci:" >&2
   printf '  %s\n' "${fix_flat[@]}" "${fix_deep[@]}" >&2
   cmds=()
   if [ "${#fix_flat[@]}" -gt 0 ]; then cmds+=("sudo chown $uid ${fix_flat[*]}"); fi

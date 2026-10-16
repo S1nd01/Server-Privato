@@ -122,8 +122,93 @@ services:
       - ${DATA_DIR}/jellyfin/config:/config
       - ${DATA_DIR}/jellyfin/cache:/cache
       - ${DATA_DIR}/media:/media:ro
+      # Unica eccezione alla sola lettura: JellyBridge ci scrive i segnaposto dei contenuti da scoprire (docs/seerr.md)
+      - ${DATA_DIR}/media/Discoveries:/media/Discoveries
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8096:8096"
+    restart: unless-stopped
+
+  # ---------- Richieste e download automatici (docs/seerr.md) ----------
+  # Flusso: Jellyfin + JellyBridge -> richiesta in Seerr -> Radarr (film) / Sonarr (serie) -> qBittorrent -> Film / Serie TV.
+  # Radarr, Sonarr e qBittorrent montano la stessa cartella media di Jellyfin con lo stesso percorso interno (/media):
+  # e' quello che permette l'importazione dei file (e i collegamenti fisici, senza copie doppie).
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    init: true
+    # niente "user:" ne' PUID/PGID: l'immagine ufficiale gira come utente 1000 (se il tuo non lo e', docs/seerr.md)
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/seerr/config:/app/config
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:5055:5055"
+    depends_on:
+      - jellyfin
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+      WEBUI_PORT: "8080"
+    volumes:
+      - ${DATA_DIR}/qbittorrent/config:/config
+      - ${DATA_DIR}/media:/media
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8080:8080"
+      # La porta dei peer (6881) non e' pubblicata, come tutto il resto: nessuna porta aperta sul router.
+      # I download funzionano lo stesso (connessioni in uscita), ma possono essere piu' lenti.
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/prowlarr/config:/config
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:9696:9696"
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/radarr/config:/config
+      - ${DATA_DIR}/media:/media
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:7878:7878"
+    depends_on:
+      - qbittorrent
+      - prowlarr
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/sonarr/config:/config
+      - ${DATA_DIR}/media:/media
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8989:8989"
+    depends_on:
+      - qbittorrent
+      - prowlarr
     restart: unless-stopped
 
   # ---------- Vaultwarden (nessuna porta pubblicata: si passa solo da Caddy o da Tailscale) ----------

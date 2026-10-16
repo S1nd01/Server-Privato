@@ -48,6 +48,8 @@ sul server, il token non serve più. Il limite dei tentativi è per client visto
 - Tutte le porte dei servizi sono pubblicate su `127.0.0.1` (`BIND_ADDR=127.0.0.1`): nemmeno la rete di casa le vede.
   Metti `BIND_ADDR=0.0.0.0` solo se serve (es. TV con Jellyfin) e limita le porte con il firewall.
 - Il DNS di Pi-hole ascolta su `127.0.0.1` finché non decidi diversamente (`PIHOLE_DNS_BIND`).
+- Radarr, Sonarr, Prowlarr e qBittorrent non sono pubblicati in Tailscale (solo Seerr lo è): sono pannelli di amministrazione.
+  Imposta in ciascuno un utente e una password al primo accesso (docs/seerr.md). Il Seerr raggiungibile da Tailscale usa gli utenti di Jellyfin.
 - Il container Tailscale non si ferma né si riavvia dal pannello: se ti colleghi tramite lui, perderesti l'accesso.
 - Sulla WSL con rete "mirrored": non usare `-DefaultInboundAction Allow`; con `BIND_ADDR=127.0.0.1` non serve aprire nulla.
 - Gli indirizzi `.ts.net` finiscono nei registri pubblici dei certificati (Certificate Transparency): il nome è visibile,
