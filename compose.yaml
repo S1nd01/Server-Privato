@@ -283,3 +283,12 @@ services:
       - ${DATA_DIR}/backups/restic:/repo
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/run/restic-pass:ro
       - ${DATA_DIR}/restore:/restore
+  portainer:
+    image: portainer/portainer-ce:lts
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./homeserver-data/portainer:/data
