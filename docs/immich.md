@@ -17,6 +17,11 @@ separatamente.
 `IMMICH_DB_PASSWORD`: usa solo lettere e numeri e **sceglila prima del primo avvio**. Il database viene creato con
 quella password: cambiarla dopo richiede di cancellare `$DATA_DIR/immich/postgres` (e perdere l'indice).
 
+Se Immich scrive `password authentication failed for user "postgres"`, la password nel `.env` non è quella con cui fu creato
+il database (di solito il `.env` è stato rifatto o sostituito). Senza cancellare nulla: `./src/scripts/fix-immich-db.sh`.
+Se il database è ancora vuoto e preferisci ripartire da zero: `docker compose down`, cancella `data/immich/postgres`
+(è di un altro utente: serve `sudo`) e rilancia `./src/scripts/start.sh`.
+
 ## Primo avvio
 
 ```bash

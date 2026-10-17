@@ -136,7 +136,9 @@ services:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: seerr
     init: true
-    # niente "user:" ne' PUID/PGID: l'immagine ufficiale gira come utente 1000 (se il tuo non lo e', docs/seerr.md)
+    # Come gli altri servizi gira col tuo utente (PUID:PGID): l'immagine ufficiale userebbe l'utente 1000 e,
+    # se la cartella config e' di un altro utente, scrive "EACCES mkdir /app/config/logs".
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       TZ: ${TZ}
     volumes:

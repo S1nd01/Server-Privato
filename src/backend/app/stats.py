@@ -250,7 +250,12 @@ def _setup() -> dict | None:
     root_owned = []
     # Jellyfin e gli strumenti di download girano col tuo utente, non come root: se la cartella e' di root
     # (l'ha creata Docker) non riescono a scriverci. media/Discoveries e' dove scrive JellyBridge.
-    for d in ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "qbittorrent", "media/Discoveries", "media/downloads"):
+    # Si controllano anche le sottocartelle: spesso e' la cartella di primo livello a essere dell'utente
+    # e quella interna (config, log) di root, per un avvio precedente senza "user:".
+    for d in ("jellyfin", "jellyfin/config", "jellyfin/config/log", "jellyfin/cache",
+              "seerr", "seerr/config", "seerr/config/logs",
+              "radarr", "radarr/config", "sonarr", "sonarr/config", "prowlarr", "prowlarr/config",
+              "qbittorrent", "qbittorrent/config", "media/Discoveries", "media/downloads"):
         try:
             if os.stat(os.path.join(DATA_ROOT, d)).st_uid == 0:
                 root_owned.append(d)

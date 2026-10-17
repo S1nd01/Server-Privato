@@ -40,6 +40,20 @@ fi
 sed -i 's/\r$//' .env
 chmod 600 .env
 
+# PUID/PGID del .env devono essere quelli dell'utente che possiede data/: se il .env viene da un'altra macchina o da
+# una versione precedente (come nell'aggiornamento descritto nel README), Jellyfin e Seerr non riescono a scrivere.
+if [ "$(id -u)" = 0 ]; then
+  echo "ATTENZIONE: stai lanciando lo script come root (sudo): le cartelle dei dati diventerebbero di root. Rilancialo col tuo utente, senza sudo." >&2
+else
+  cur_puid="$({ grep -E '^PUID=' .env || true; } | head -n1 | cut -d= -f2-)"
+  cur_pgid="$({ grep -E '^PGID=' .env || true; } | head -n1 | cut -d= -f2-)"
+  if [ "$cur_puid" != "$(id -u)" ] || [ "$cur_pgid" != "$(id -g)" ]; then
+    echo "NOTA: PUID/PGID nel .env erano ${cur_puid:-vuoti}/${cur_pgid:-vuoti}: li allineo al tuo utente ($(id -u)/$(id -g))." >&2
+    if grep -q '^PUID=' .env; then sed -i "s/^PUID=.*/PUID=$(id -u)/" .env; else echo "PUID=$(id -u)" >> .env; fi
+    if grep -q '^PGID=' .env; then sed -i "s/^PGID=.*/PGID=$(id -g)/" .env; else echo "PGID=$(id -g)" >> .env; fi
+  fi
+fi
+
 get() { { grep -E "^$1=" .env || true; } | head -n1 | cut -d= -f2-; }
 set_kv() {
   local key="$1" value="$2" escaped
@@ -57,6 +71,21 @@ while IFS= read -r line; do
     added+=("$key")
   fi
 done < .env.example
+
+# Password del database di Immich: il valore di esempio "cambiami" (o vuoto) viene sostituito con una casuale
+# solo se il database non e' ancora stato creato; dopo, la password nel .env deve restare quella usata alla creazione.
+# Postgres, avviando, prende in carico la sua cartella (utente 999): un proprietario diverso dal tuo = database gia' creato.
+# (non si puo' guardare dentro: la cartella e' 700 e di quell'utente)
+immich_db_exists() { local d="$project_dir/data/immich/postgres"; [ -d "$d" ] && [ "$(stat -c %u "$d")" != "$(id -u)" ]; }
+cur_dbpw="$({ grep -E '^IMMICH_DB_PASSWORD=' .env || true; } | head -n1 | cut -d= -f2-)"
+if { [ -z "$cur_dbpw" ] || [ "$cur_dbpw" = cambiami ]; } && ! immich_db_exists; then
+  newpw="$(openssl rand -hex 8)"
+  if grep -q '^IMMICH_DB_PASSWORD=' .env; then sed -i "s/^IMMICH_DB_PASSWORD=.*/IMMICH_DB_PASSWORD=$newpw/" .env; else echo "IMMICH_DB_PASSWORD=$newpw" >> .env; fi
+  echo "Password del database Immich generata nel .env."
+fi
+if immich_db_exists; then
+  echo "NOTA: il database di Immich esiste gia'. Se Immich scrive 'password authentication failed', la password nel .env non e' quella con cui fu creato: lancia ./src/scripts/fix-immich-db.sh (non perde dati)." >&2
+fi
 
 if ! grep -qE '^PIHOLE_PASSWORD=.+' .env; then
   pw="$(openssl rand -hex 12)"
@@ -106,12 +135,15 @@ find_problems() {
   if [ -d "$data_dir" ] && [ ! -w "$data_dir" ]; then fix_flat+=("$data_dir"); fi
   # Jellyfin e gli strumenti di download girano col tuo utente (PUID): le loro cartelle devono essere tue.
   # media/Discoveries e media/downloads sono quelle dove scrivono JellyBridge e qBittorrent (stessa lista in stats.py)
+  # Seerr ora gira anch'esso col PUID. Il controllo e' su TUTTO l'albero: la cartella di primo livello puo' essere tua
+  # e config/log di root (creati da un avvio precedente senza "user:"), ed e' proprio quello che fa dire
+  # "permission denied" a Jellyfin e Seerr.
   local d
-  for d in jellyfin radarr sonarr prowlarr qbittorrent media/Discoveries media/downloads; do
-    if [ -e "$data_dir/$d" ] && ! mine "$data_dir/$d"; then fix_deep+=("$data_dir/$d"); fi
+  for d in jellyfin seerr radarr sonarr prowlarr qbittorrent media/Discoveries media/downloads; do
+    if [ -e "$data_dir/$d" ] && [ -n "$(find "$data_dir/$d" ! -uid "$(id -u)" -print -quit 2>/dev/null)" ]; then
+      fix_deep+=("$data_dir/$d")
+    fi
   done
-  # Seerr gira come utente 1000 (non col PUID): qui basta che la cartella non sia di root
-  if [ "$(id -u)" != 0 ] && [ -e "$data_dir/seerr" ] && [ "$(stat -c %u "$data_dir/seerr")" = 0 ]; then fix_deep+=("$data_dir/seerr"); fi
 }
 
 made=1; make_dirs || made=0

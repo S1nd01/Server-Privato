@@ -106,8 +106,10 @@ continuano a funzionare, ma le richieste restano in coda finché non riaccendi.
 ## Problemi comuni
 
 - **Errore di permessi** su una cartella: l'ha creata Docker come root. Lancia `./src/scripts/sync-env.sh`, ti propone il comando `chown` giusto.
-- **Seerr non parte e scrive "permission denied" su `/app/config`**: l'immagine gira come utente 1000. Se il tuo utente (`id -u`) è
-  diverso, aggiungi `user: "${PUID}:${PGID}"` al servizio `seerr` in `compose.yaml` e rilancia.
+- **Seerr scrive `EACCES: permission denied, mkdir '/app/config/logs'` (o Jellyfin `Access to the path '/config/log' is denied`)**: la cartella
+  `data/seerr` o `data/jellyfin` (o una sua sottocartella) appartiene a root, perché l'ha creata Docker in un avvio precedente. Seerr gira ora col tuo utente
+  (`PUID:PGID`), come Jellyfin. Ferma i servizi, lancia `./src/scripts/sync-env.sh` (controlla tutto l'albero e ti propone il `chown -R` giusto),
+  poi `docker compose up -d`. Non lanciare mai gli script con `sudo`.
 - **Radarr/Sonarr scaricano ma non importano**: controlla che il percorso nel client di download sia `/media/downloads` e che la
   cartella radice sia sotto `/media`. Nessuna "mappatura dei percorsi remoti" serve se i percorsi sono questi.
 - **qBittorrent lento**: la porta dei peer non è pubblicata (nessuna porta aperta sul router, come per tutto il progetto). Funziona
