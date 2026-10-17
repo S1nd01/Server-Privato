@@ -257,7 +257,7 @@ services:
       # DNS solo sul computer finche' non decidi di usarlo per tutta la rete (docs/pihole.md)
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/tcp"
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/udp"
-      - "${BIND_ADDR:-127.0.0.1}:8053:80/tcp"
+      - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
     restart: unless-stopped
 
   # ---------- Strumenti (non partono con `up`) ----------
