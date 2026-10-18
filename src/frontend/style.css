@@ -64,7 +64,7 @@ a { color: var(--accent); }
 /* ---- navigazione: barra in basso su telefono, colonna a sinistra su schermo largo ---- */
 nav {
   position: fixed; z-index: 6; left: 0; right: 0; bottom: 0;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   background: var(--sheet); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }

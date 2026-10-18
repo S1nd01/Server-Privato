@@ -1,14 +1,22 @@
 name: homeserver
 
 # Le porte pubblicate sul computer restano di default su 127.0.0.1 (BIND_ADDR): dal telefono e da fuori casa
-# si passa da Tailscale, che pubblica i servizi in HTTPS (vedi tailscale/serve.json e docs/tailscale.md).
+# si passa da Tailscale, unico proxy del progetto: pubblica i servizi in HTTPS (vedi tailscale/serve.json e docs/tailscale.md).
 # Per raggiungerli anche dalla rete di casa senza Tailscale: BIND_ADDR=0.0.0.0 nel .env.
+
+# Log dei container: senza questo Docker li tiene senza limite e il disco si riempie piano piano (e l'SD del Raspberry si consuma).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   # ---------- App (frontend + backend/API) ----------
   frontend:
     image: nginx:alpine
     container_name: hs_frontend
+    logging: *logging
     ports:
       - "127.0.0.1:8088:80"   # solo dal PC stesso: il pannello comanda Docker, non va esposto in LAN
     volumes:
@@ -22,14 +30,12 @@ services:
   backend:
     build: ./src/backend
     container_name: hs_backend
+    logging: *logging
     environment:
       TZ: ${TZ}
       API_TOKEN_HASH: ${API_TOKEN_HASH:-}
       API_TOKEN: ${API_TOKEN:-}   # vecchio metodo in chiaro, solo compatibilita'
-      STEAMCMD_IMAGE: ${STEAMCMD_IMAGE:-steamcmd/steamcmd:latest}
       # percorsi HOST (per i container figli lanciati dal backend)
-      HOST_STEAM_CONFIG_DIR: ${DATA_DIR}/steamcmd
-      HOST_STEAM_GAMES_DIR: ${STEAM_GAMES_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
       HOST_DATA_DIR: ${DATA_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
       HOST_PHOTOS_DIR: ${DATA_DIR}/photos
       RESTIC_IMAGE: ${RESTIC_IMAGE:-restic/restic:latest}
@@ -41,8 +47,6 @@ services:
       RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-6}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DATA_DIR}/steamcmd:/data/steamcmd
-      - ${STEAM_GAMES_DIR}:/data/games
       # sola lettura: servono al backend per sapere cosa c'e' da salvare e se l'archivio e' pronto
       - ${DATA_DIR}:/data/datadir:ro
       - ${DATA_DIR}/photos:/data/photos:ro
@@ -55,6 +59,8 @@ services:
   tailscale:
     image: tailscale/tailscale:latest
     container_name: tailscale
+    logging: *logging
+    oom_score_adj: -500
     hostname: ${TS_HOSTNAME:-homeserver}
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-homeserver}
@@ -71,6 +77,7 @@ services:
   immich-server:
     image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
     container_name: immich_server
+    logging: *logging
     volumes:
       - ${DATA_DIR}/immich/upload:/data
       - /etc/localtime:/etc/localtime:ro
@@ -90,6 +97,10 @@ services:
   immich-machine-learning:
     image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
     container_name: immich_machine_learning
+    logging: *logging
+    cpu_shares: 512
+    mem_limit: 3g          # riconoscimento volti e ricerca: il piu' pesante di Immich
+    oom_score_adj: 500     # se la RAM finisce, e' il primo a essere fermato
     volumes:
       - ${DATA_DIR}/immich/model-cache:/cache
     restart: unless-stopped
@@ -97,11 +108,13 @@ services:
   immich-redis:
     image: docker.io/valkey/valkey:8-bookworm
     container_name: immich_redis
+    logging: *logging
     restart: unless-stopped
 
   immich-postgres:
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
     container_name: immich_postgres
+    logging: *logging
     environment:
       POSTGRES_PASSWORD: ${IMMICH_DB_PASSWORD}
       POSTGRES_USER: postgres
@@ -115,6 +128,7 @@ services:
   jellyfin:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
+    logging: *logging
     user: "${PUID:-1000}:${PGID:-1000}"   # le cartelle le crea src/scripts/sync-env.sh col tuo utente
     environment:
       TZ: ${TZ}
@@ -135,6 +149,7 @@ services:
   seerr:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: seerr
+    logging: *logging
     init: true
     # Come gli altri servizi gira col tuo utente (PUID:PGID): l'immagine ufficiale userebbe l'utente 1000 e,
     # se la cartella config e' di un altro utente, scrive "EACCES mkdir /app/config/logs".
@@ -152,6 +167,9 @@ services:
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
+    logging: *logging
+    cpu_shares: 512
+    mem_limit: 2g
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -169,6 +187,8 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
+    logging: *logging
+    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -182,6 +202,8 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
+    logging: *logging
+    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -199,6 +221,8 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
+    logging: *logging
+    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -213,40 +237,67 @@ services:
       - prowlarr
     restart: unless-stopped
 
-  # ---------- Vaultwarden (nessuna porta pubblicata: si passa solo da Caddy o da Tailscale) ----------
+  # Sottotitoli automatici per Radarr e Sonarr (docs/bazarr.md). Stesso percorso /media degli altri: scrive i .srt accanto ai video.
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    logging: *logging
+    cpu_shares: 512
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/bazarr/config:/config
+      - ${DATA_DIR}/media:/media
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:6767:6767"
+    depends_on:
+      - radarr
+      - sonarr
+    restart: unless-stopped
+
+  # Browser headless che Prowlarr usa per gli indexer protetti da Cloudflare. Nessuna porta pubblicata: lo chiama solo Prowlarr
+  # (http://flaresolverr:8191). Quando risolve una sfida usa parecchia RAM: il limite protegge il resto del server.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    logging: *logging
+    cpu_shares: 256
+    oom_score_adj: 500
+    environment:
+      TZ: ${TZ}
+      LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
+    mem_limit: 1g
+    restart: unless-stopped
+
+  # ---------- Vaultwarden ----------
+  # Da telefono e PC si passa da Tailscale (HTTPS valido, porta 8443 in tailscale/serve.json).
+  # Unica porta pubblicata: 127.0.0.1:8222 in HTTP, per aprire il vault dal server stesso se Tailscale non funziona
+  # (localhost e' un contesto sicuro per il browser). Volutamente non segue BIND_ADDR: in LAN sarebbe HTTP in chiaro.
   vaultwarden:
     image: vaultwarden/server:latest
     container_name: vaultwarden
+    logging: *logging
+    oom_score_adj: -500
     environment:
       TZ: ${TZ}
-      DOMAIN: ${VW_DOMAIN:-https://${VW_HOST:-localhost}:${VW_PORT:-8443}}
+      DOMAIN: ${VW_DOMAIN:-http://localhost:8222}
       SIGNUPS_ALLOWED: ${VW_SIGNUPS:-true}
       INVITATIONS_ALLOWED: "false"
       SHOW_PASSWORD_HINT: "false"
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    ports:
+      - "127.0.0.1:8222:80"
     volumes:
       - ${DATA_DIR}/vaultwarden:/data
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    environment:
-      VW_HOST: ${VW_HOST:-localhost}
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:${VW_PORT:-8443}:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${DATA_DIR}/caddy/data:/data   # contiene la CA locale: non cancellarlo o dovrai rifare la fiducia sui dispositivi
-      - ${DATA_DIR}/caddy/config:/config
-    depends_on:
-      - vaultwarden
     restart: unless-stopped
 
   # ---------- Pi-hole ----------
   pihole:
     image: pihole/pihole:latest
     container_name: pihole
+    logging: *logging
     environment:
       TZ: ${TZ}
       FTLCONF_webserver_api_password: ${PIHOLE_PASSWORD:?PIHOLE_PASSWORD manca nel .env - lancia ./src/scripts/sync-env.sh}
@@ -260,17 +311,55 @@ services:
       - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
     restart: unless-stopped
 
-  # ---------- Strumenti (non partono con `up`) ----------
-  # Primo login Steam:   docker compose run --rm steamcmd +login IL_TUO_USERNAME
-  steamcmd:
-    image: ${STEAMCMD_IMAGE:-steamcmd/steamcmd:latest}
-    profiles: ["tools"]
-    stdin_open: true
-    tty: true
+  # ---------- Portainer: gestione grafica di Docker ----------
+  # Si apre da Tailscale (https://<nome>.ts.net:9443) o dal server (https://localhost:9443, certificato autofirmato).
+  # Monta il socket Docker come il backend del pannello: chi entra controlla la macchina. Per questo la porta e' sempre
+  # su 127.0.0.1 (come il pannello, ignora BIND_ADDR) e non va mai aperta in LAN.
+  # Il primo utente amministratore va creato entro 5 minuti dall'avvio, altrimenti: docker compose restart portainer
+  portainer:
+    image: portainer/portainer-ce:lts
+    container_name: portainer
+    logging: *logging
+    ports:
+      - "127.0.0.1:9443:9443"
     volumes:
-      - ${DATA_DIR}/steamcmd:/root/.local/share/Steam
-      - ${STEAM_GAMES_DIR}:/data/games
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR}/portainer:/data
+    restart: unless-stopped
 
+  # ---------- Monitoraggio e notifiche (docs/uptime-kuma.md, docs/ntfy.md) ----------
+  # Non monta il socket Docker: controlla i servizi con richieste HTTP/TCP verso i nomi dei container.
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    logging: *logging
+    volumes:
+      - ${DATA_DIR}/kuma:/app/data
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:3001:3001"
+    restart: unless-stopped
+
+  # Notifiche push sul telefono (app ntfy). Accesso solo con utente e password: si crea con `ntfy user add` (docs/ntfy.md).
+  ntfy:
+    image: binwiederhold/ntfy:latest
+    container_name: ntfy
+    logging: *logging
+    command: serve
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: ${TZ}
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://localhost:2586}
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_BEHIND_PROXY: "true"
+    volumes:
+      - ${DATA_DIR}/ntfy:/var/lib/ntfy
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:2586:80"
+    restart: unless-stopped
+
+  # ---------- Strumenti (non partono con `up`) ----------
   # Ripristino da backup:   docker compose run --rm restic snapshots
   #                         docker compose run --rm restic restore latest --target /restore
   restic:
@@ -283,12 +372,3 @@ services:
       - ${DATA_DIR}/backups/restic:/repo
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/run/restic-pass:ro
       - ${DATA_DIR}/restore:/restore
-  portainer:
-    image: portainer/portainer-ce:lts
-    container_name: portainer
-    restart: unless-stopped
-    ports:
-      - "9443:9443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./homeserver-data/portainer:/data

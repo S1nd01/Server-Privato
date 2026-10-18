@@ -42,8 +42,9 @@ si caricano invece con l'app Immich e finiscono in `$DATA_DIR/immich/upload`.
 
 L'indicizzazione iniziale (volti, ricerca intelligente) è il momento più pesante: CPU al massimo per un po'
 e parecchia RAM (Immich consiglia almeno 4 GB). Per alleggerire:
-- ferma il machine learning: `docker compose stop immich-machine-learning` (la galleria funziona, ma senza
-  volti e ricerca intelligente);
+- ferma il machine learning: nel pannello l'interruttore **Immich, riconoscimento** (o `docker compose stop immich-machine-learning`).
+  La galleria funziona, ma volti e ricerca intelligente non si aggiornano: i lavori restano in coda e ripartono quando lo riaccendi.
+  Il container ha un limite di RAM di 3 GB e priorita' bassa (`compose.yaml`);
 - su WSL limita la memoria con `.wslconfig` (`memory=6GB`).
 
 ## Aggiornamenti

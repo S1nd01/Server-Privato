@@ -111,11 +111,11 @@ Fatto. Apri nel browser di Windows:
   Jellyfin   http://localhost:8096
   Seerr      http://localhost:5055   (con Radarr 7878, Sonarr 8989, Prowlarr 9696, qBittorrent 8080: docs/seerr.md)
   Pi-hole    http://localhost:8053/admin
-  Vaultwarden https://localhost:8443
+  Vaultwarden http://localhost:8222   (da Tailscale in HTTPS sulla porta 8443: docs/vaultwarden.md)
+  Portainer  https://localhost:9443   (certificato autofirmato: docs/portainer.md)
 
 Il progetto e' in: $DEST
 Dati dei servizi: $(grep -E '^DATA_DIR=' .env | cut -d= -f2-)
-Giochi Steam:     $(grep -E '^STEAM_GAMES_DIR=' .env | cut -d= -f2-)
 $BACKUP_NOTE
 Prossimo passo (telefono): docs/tailscale.md
 MSG

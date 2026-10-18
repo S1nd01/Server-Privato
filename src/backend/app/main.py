@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 
-from docker.errors import NotFound
+import anyio.to_thread
+
+from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import backup, stats, steam, tailscale
+from . import backup, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import SERVICES
@@ -11,6 +13,9 @@ from .services import SERVICES
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Le funzioni sincrone girano in un pool di thread (40 di serie). Il client Docker condiviso ha 16 connessioni
+    # (dockerutil.py): piu' thread di cosi' resterebbero solo in coda sulla stessa connessione.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = 16
     backup.start_scheduler()
     yield
     backup.stop_scheduler()
@@ -22,22 +27,26 @@ app = FastAPI(
     dependencies=[Depends(require_token)],
     lifespan=lifespan,
 )
-app.include_router(steam.router)
 app.include_router(tailscale.router)
 app.include_router(backup.router)
 
 
-def _container_state(client, name: str) -> dict:
+def _snapshot(client) -> dict[str, str]:
+    """Stato di tutti i container con UNA sola chiamata a Docker (prima ne serviva una per container)."""
     try:
-        c = client.containers.get(name)
-        return {"name": name, "status": c.status}
-    except NotFound:
-        return {"name": name, "status": "not_created"}
+        rows = client.api.containers(all=True)
+    except DockerException as exc:
+        raise HTTPException(503, f"Docker non raggiungibile: {exc}")
+    states: dict[str, str] = {}
+    for row in rows:
+        for n in row.get("Names") or []:
+            states[n.lstrip("/")] = row.get("State") or "unknown"
+    return states
 
 
-def _service_status(client, sid: str) -> dict:
+def _service_status(states: dict[str, str], sid: str) -> dict:
     meta = SERVICES[sid]
-    containers = [_container_state(client, n) for n in meta["containers"]]
+    containers = [{"name": n, "status": states.get(n, "not_created")} for n in meta["containers"]]
     statuses = {c["status"] for c in containers}
     if statuses == {"running"}:
         overall = "running"
@@ -54,6 +63,7 @@ def _service_status(client, sid: str) -> dict:
         "scheme": meta["scheme"],
         "url_port": meta["url_port"],
         "path": meta.get("path", ""),
+        "ts_only": meta.get("ts_only", False),
         "can_stop": meta.get("allow_stop", True),
         "status": overall,
         "containers": containers,
@@ -72,8 +82,8 @@ def health():
 
 @app.get("/api/services")
 def list_services():
-    client = _client()
-    return [_service_status(client, sid) for sid in SERVICES]
+    states = _snapshot(_client())
+    return [_service_status(states, sid) for sid in SERVICES]
 
 
 @app.get("/api/stats")
@@ -85,7 +95,7 @@ def get_stats():
 @app.get("/api/services/{sid}")
 def get_service(sid: str):
     _get_or_404(sid)
-    return _service_status(_client(), sid)
+    return _service_status(_snapshot(_client()), sid)
 
 
 def _act(sid: str, action: str):
@@ -106,7 +116,7 @@ def _act(sid: str, action: str):
                 409, f"Container '{name}' non esiste: avvia prima con docker compose up -d"
             )
         getattr(c, action)()
-    return _service_status(client, sid)
+    return _service_status(_snapshot(client), sid)
 
 
 @app.post("/api/services/{sid}/start")

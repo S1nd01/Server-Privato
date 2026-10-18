@@ -61,7 +61,7 @@ sul server, il token non serve più. Il limite dei tentativi è per client visto
 |---|---|
 | Vault delle password | AES-256 lato client (Bitwarden), Vaultwarden vede solo dati cifrati |
 | Backup di Vaultwarden | AES-256 (GnuPG simmetrico) con passphrase da file, integrità verificata |
-| Connessione a Vaultwarden | TLS (Caddy, CA locale) |
+| Connessione a Vaultwarden | HTTPS di Tailscale (certificato valido); dal server stesso solo `localhost` |
 | Accesso da fuori | Tailscale: tunnel WireGuard cifrato (ChaCha20-Poly1305) + HTTPS con certificato valido |
 | Backup Restic | AES-256 (CTR) con autenticazione Poly1305-AES; la passphrase sta in un file a parte |
 | Immich | HTTP in LAN; da fuori casa passa da Tailscale in HTTPS |

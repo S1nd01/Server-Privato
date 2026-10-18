@@ -15,6 +15,7 @@ function section(title, ...body) { return h("section", { class: "block" }, h("h2
 function serviceUrl(s) {
   if (!s.url_port) return null;
   const onTs = location.hostname.endsWith(".ts.net");
+  if (s.ts_only && !onTs) return null;
   const scheme = onTs ? "https" : s.scheme;
   return `${scheme}://${location.hostname}:${s.url_port}${s.path || ""}`;
 }
@@ -228,10 +229,22 @@ export function servizi(root, ctx) {
     renderAlerts(services, st);
   }
 
+  // Lo stato dei servizi e' leggero (una sola chiamata a Docker) e si rinnova a ogni giro; le statistiche costano di piu'
+  // e basta rileggerle ogni 15 secondi, o subito se un servizio cambia stato (acceso, spento, riavviato).
+  const STATS_EVERY_MS = 15000;
+  let statsAt = 0;
+  let statesKey = "";
   async function update() {
     try {
-      // le statistiche sono un di piu': se mancano si vedono comunque i servizi
-      const [services, st] = await Promise.all([api("/services"), api("/stats").catch(() => null)]);
+      const services = await api("/services");
+      const key = services.map((s) => s.id + s.status).join();
+      let st = last ? last.st : null;
+      if (key !== statesKey || Date.now() - statsAt >= STATS_EVERY_MS) {
+        // le statistiche sono un di piu': se mancano si vedono comunque i servizi
+        const fresh = await api("/stats").catch(() => null);
+        if (fresh) { st = fresh; statsAt = Date.now(); }
+        statesKey = key;
+      }
       last = { services, st };
       render();
       ctx.setServices(services);
@@ -240,74 +253,6 @@ export function servizi(root, ctx) {
       last = null;
       grid.replaceChildren(errorBox(e));
     }
-  }
-  return { update };
-}
-
-// ---------------------------------------------------------------- Steam
-const openLogs = new Set();
-
-export function steam(root, ctx) {
-  const appid = h("input", { id: "appid", name: "appid", type: "number", inputmode: "numeric", min: "1", required: true, placeholder: "es. 730", autocomplete: "off" });
-  const platform = h("select", { id: "platform", name: "platform" }, ["windows", "linux", "macos"].map((p) => h("option", { value: p }, p[0].toUpperCase() + p.slice(1))));
-  const login = h("input", { id: "login", name: "login", type: "text", placeholder: "anonymous", autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
-  const submit = h("button", { class: "btn primary", type: "submit" }, "Scarica");
-  const form = h("form", { class: "form", onsubmit: async (ev) => {
-    ev.preventDefault();
-    await run(submit, async () => {
-      const id = Number(appid.value);
-      await api("/steam/downloads", { method: "POST", json: { appid: id, platform: platform.value, login: login.value.trim() || "anonymous" } });
-      openLogs.add(id);
-      toast("Download avviato");
-      await update();
-    });
-  } },
-    h("label", { for: "appid" }, "AppID", appid, h("small", {}, "Il numero nell'indirizzo dello store Steam")),
-    h("label", { for: "platform" }, "Sistema", platform),
-    h("label", { for: "login" }, "Account", login, h("small", {}, "Vuoto = anonimo (solo giochi gratuiti o server dedicati)")),
-    submit);
-  const downloads = h("ul", { class: "rows" });
-  const library = h("ul", { class: "rows plain" });
-  root.append(section("Nuovo download", form), section("Download", downloads), section("Libreria", library));
-
-  let lastRunning = -1;
-
-  function dlRow(d) {
-    const done = d.status === "exited" && d.exit_code === 0;
-    const failed = d.status === "exited" && d.exit_code !== 0;
-    const state = done ? "running" : failed ? "failed" : d.status === "running" ? "partial" : "stopped";
-    const label = done ? "Completato" : failed ? `Errore (codice ${d.exit_code})` : d.status === "running" ? (d.progress != null ? `Download in corso, ${String(d.progress).replace(".", ",")}%` : "In corso") : d.status;
-    const open = openLogs.has(d.appid);
-    const pre = h("pre", { class: "log", hidden: !open }, "…");
-    if (open) api(`/steam/downloads/${d.appid}/logs?tail=30`).then((r) => { pre.textContent = r.logs.trim() || "Nessun messaggio"; pre.scrollTop = pre.scrollHeight; }).catch(() => {});
-    const bar = d.status === "running" && d.progress != null
-      ? (() => { const i = h("i"); i.style.width = Math.min(100, d.progress) + "%"; return h("div", { class: "bar", role: "progressbar", "aria-valuenow": String(d.progress), "aria-valuemin": "0", "aria-valuemax": "100" }, i); })()
-      : null;
-    const size = d.status === "running" && d.total_bytes ? h("small", {}, `${fmtBytes(d.downloaded_bytes)} di ${fmtBytes(d.total_bytes)}`) : null;
-    return h("li", { class: "row" },
-      h("div", { class: "line" },
-        h("div", { class: "rowmain static" }, led(state), h("span", { class: "text" }, h("strong", {}, `App ${d.appid}`), h("small", {}, `${label}. ${d.platform || ""}`), size)),
-        h("button", { class: "btn quiet", onclick: () => { open ? openLogs.delete(d.appid) : openLogs.add(d.appid); update(); } }, open ? "Nascondi log" : "Log"),
-        h("button", { class: "btn quiet", onclick: (e) => run(e.currentTarget, async () => { await api(`/steam/downloads/${d.appid}`, { method: "DELETE" }); openLogs.delete(d.appid); await update(); }) }, d.status === "running" ? "Annulla" : "Rimuovi")),
-      bar, pre);
-  }
-
-  async function loadLibrary() {
-    try {
-      const games = await api("/steam/library");
-      library.replaceChildren(...(games.length ? games.map((g) => h("li", { class: "row" }, h("div", { class: "line" },
-        h("div", { class: "rowmain static" }, led(g.installed ? "running" : "partial"),
-          h("span", { class: "text" }, h("strong", {}, g.name || `App ${g.appid}`), h("small", {}, `${g.installed ? "Installato" : "Incompleto"}${g.size_bytes != null ? ", " + fmtBytes(g.size_bytes) : ""}`)))))) : [empty("Nessun gioco scaricato.")]));
-    } catch (e) { library.replaceChildren(errorBox(e)); }
-  }
-
-  async function update() {
-    try {
-      const items = await api("/steam/downloads");
-      downloads.replaceChildren(...(items.length ? items.map(dlRow) : [empty("Nessun download.")]));
-      const running = items.filter((d) => d.status === "running").length;
-      if (running !== lastRunning) { lastRunning = running; await loadLibrary(); }
-    } catch (e) { downloads.replaceChildren(errorBox(e)); }
   }
   return { update };
 }
@@ -462,5 +407,5 @@ export function rete(root, ctx) {
   return { update };
 }
 
-export const VIEWS = { servizi, steam, backup, rete };
-export const TITLES = { servizi: "Servizi", steam: "Steam", backup: "Backup", rete: "Rete" };
+export const VIEWS = { servizi, backup, rete };
+export const TITLES = { servizi: "Servizi", backup: "Backup", rete: "Rete" };

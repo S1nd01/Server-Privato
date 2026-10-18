@@ -39,8 +39,8 @@ Jellyfin legge `/media` in sola lettura; l'unica eccezione è `/media/Discoverie
 | qBittorrent | http://localhost:8080 | `http://qbittorrent:8080` |
 
 Nei campi "host" o "URL" dei servizi usa sempre i nomi Docker della terza colonna, mai `localhost`.
-Dal telefono, con Tailscale, si apre solo Seerr: `https://<nome>.ts.net:5055`. Radarr, Sonarr, Prowlarr e qBittorrent restano
-sul server (`127.0.0.1`): sono pannelli di amministrazione, non servono fuori.
+Con Tailscale (`tailscale.md`) tutti e cinque si aprono anche da telefono e PC: `https://<nome>.ts.net:<porta>` con le stesse porte
+della tabella. Radarr, Sonarr, Prowlarr e qBittorrent sono pannelli di amministrazione: imposta subito l'autenticazione (sotto).
 
 ## 1. qBittorrent
 
@@ -94,12 +94,15 @@ permesso *Approvazione automatica* (Seerr, Utenti). Il progetto JellyBridge segn
 
 ## Accesso da fuori casa
 
-Con Tailscale (vedi `tailscale.md`) Seerr è su `https://<nome>.ts.net:5055`. Gli altri quattro non sono pubblicati in
-Tailscale di proposito: restano raggiungibili dal server stesso.
+Con Tailscale (vedi `tailscale.md`) Seerr è su `https://<nome>.ts.net:5055` e gli altri quattro sulle loro porte
+(7878, 8989, 9696, 8080). Passando da Tailscale, Radarr, Sonarr e Prowlarr vedono la richiesta come "locale": in
+Impostazioni, Generale, Sicurezza metti **Autenticazione: Obbligatoria** (non *Disattivata per indirizzi locali*).
+Se qBittorrent risponde "Unauthorized" dall'indirizzo `.ts.net`, in Opzioni, Web UI togli la spunta a *Abilita la protezione
+CSRF* oppure aggiungi il nome `.ts.net` in *Domini del server*.
 
 ## Risorse
 
-Su un Raspberry con 8 GB i quattro strumenti di download occupano circa 1-1,5 GB di RAM. Nel pannello compaiono come
+Su un Raspberry con 8 GB i quattro strumenti di download occupano circa 1-1,5 GB di RAM (Bazarr e FlareSolverr, vedi `bazarr.md`, ne aggiungono altri). Nel pannello compaiono come
 **Download automatici** (un solo interruttore per tutti e quattro): spegnili quando non servono. Seerr e JellyBridge
 continuano a funzionare, ma le richieste restano in coda finché non riaccendi.
 

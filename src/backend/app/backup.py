@@ -1,7 +1,7 @@
 """Backup con Restic.
 
 Ogni operazione (init, backup, forget, check) e' un container one-shot dell'immagine restic lanciato dal
-backend via socket Docker, come per SteamCMD. L'archivio e' cifrato da restic (AES-256 in modalita'
+backend via socket Docker. L'archivio e' cifrato da restic (AES-256 in modalita'
 counter + Poly1305-AES) con la passphrase del file RESTIC_PASSWORD_FILE.
 
 Dall'API non arriva nessun percorso ne' argomento: `kind` e' un valore di un elenco fisso, tutto il resto
@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-import docker
 from docker.errors import APIError, ContainerError, NotFound
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -126,7 +125,8 @@ def _last_backup_at() -> str | None:
 # ---------- comandi restic ----------
 
 def build_backup_cmd(paths: list[str], photos: bool) -> list[str]:
-    cmd = ["-r", "/repo", "backup", "--host", HOST_TAG, "--tag", HOST_TAG, "--exclude-caches"]
+    # --read-concurrency 2: legge meno file in parallelo (il valore predefinito carica di piu' disco e CPU)
+    cmd = ["-r", "/repo", "backup", "--host", HOST_TAG, "--tag", HOST_TAG, "--exclude-caches", "--read-concurrency", "2"]
     for e in EXCLUDES:
         cmd += ["--exclude", f"/source/{e}"]
     cmd += [f"/source/{p}" for p in paths]
@@ -146,7 +146,8 @@ def build_forget_cmd(keep: dict) -> list[str]:
 
 
 def _env() -> dict:
-    return {"RESTIC_PASSWORD_FILE": "/run/restic-pass", "RESTIC_CACHE_DIR": "/cache", "TZ": os.environ.get("TZ") or "UTC"}
+    # GOMAXPROCS: restic usa al massimo 2 core, il resto resta ai servizi
+    return {"RESTIC_PASSWORD_FILE": "/run/restic-pass", "RESTIC_CACHE_DIR": "/cache", "TZ": os.environ.get("TZ") or "UTC", "GOMAXPROCS": "2"}
 
 
 def _base_volumes(cfg: dict) -> dict:
@@ -251,6 +252,7 @@ def start_job(client, kind: str) -> dict:
             c = client.containers.run(
                 cfg["image"], cmd, name=JOB_NAME, detach=True,
                 labels={LABEL: "1", "hs.kind": kind}, environment=_env(), volumes=vols,
+                cpu_shares=256,  # priorita' bassa: se il server e' occupato i servizi passano avanti (default 1024)
             )
         except APIError as exc:
             raise HTTPException(502, f"Docker: {exc.explanation or exc}")
@@ -407,7 +409,7 @@ def _tick(now: datetime | None = None) -> None:
     state = _load_state()
     if not should_run(now, cfg["schedule"], state.get("last_run_date")):
         return
-    client = docker.from_env()
+    client = get_client()
     try:
         start_job(client, "backup")
     except Busy:

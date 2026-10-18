@@ -3,44 +3,28 @@
 Password manager self-hosted, compatibile con le app e le estensioni Bitwarden.
 
 ```
-browser / app ──HTTPS──▶ Caddy (porta host 8443 → 443 nel container) ──HTTP──▶ vaultwarden:80
-                                                                               └─ dati: $DATA_DIR/vaultwarden
+telefono / PC ──HTTPS (Tailscale, porta 8443)──▶ vaultwarden:80
+                                                  └─ dati: $DATA_DIR/vaultwarden
 ```
 
-Vaultwarden **non pubblica nessuna porta**: si arriva solo passando da Caddy, quindi solo in HTTPS.
+Il proxy HTTPS è Tailscale Serve (`tailscale/serve.json`, vedi `tailscale.md`): non c'è più Caddy. L'unica porta pubblicata da
+Vaultwarden è `127.0.0.1:8222` in HTTP, un'uscita di emergenza che si apre solo dal server stesso.
 
 ## Perché HTTPS è obbligatorio
 
 Il web vault usa le API crittografiche del browser, che funzionano solo in un "secure context"
 (HTTPS oppure `localhost`). Su una LAN senza HTTPS il vault si carica ma login e cifratura falliscono.
-Per questo c'è Caddy, con `tls internal`: genera una **CA locale** e firma il certificato per il nome in `VW_HOST`.
+Tailscale dà un certificato valido per `<nome>.ts.net`: niente CA da installare sui dispositivi.
 
 ## Primo avvio
 
-1. In `.env` imposta `VW_HOST` con il nome/IP con cui raggiungerai il server:
-   - test sul PC: `localhost`
-   - uso reale: l'IP LAN del server (meglio con prenotazione DHCP sul router) o un nome in DNS.
-   Il certificato vale **solo** per quel nome: se lo cambi, `docker compose up -d caddy`.
-2. `docker compose up -d --build`
-3. Apri `https://<VW_HOST>:8443`. Vedrai un avviso di certificato: è normale finché non ti fidi della CA.
+1. Configura Tailscale (`tailscale.md`) e abilita *HTTPS Certificates* nel suo pannello.
+2. Nel `.env` metti `VW_DOMAIN=https://<nome>.<rete>.ts.net:8443` (l'indirizzo esatto lo vedi nel pannello, sezione Rete).
+3. `docker compose up -d --build`
+4. Apri `https://<nome>.<rete>.ts.net:8443` da un dispositivo con Tailscale acceso.
 
-### Fidarsi della CA di Caddy
-
-```bash
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
-```
-
-- **Linux (sistema + Chrome/Chromium)**:
-  `sudo cp caddy-root.crt /usr/local/share/ca-certificates/caddy-root.crt && sudo update-ca-certificates`
-- **Firefox**: Impostazioni → Privacy e sicurezza → Certificati → Mostra certificati → Autorità → Importa.
-- **Windows**: doppio clic sul file → Installa → "Autorità di certificazione radice attendibili".
-- **Telefono**: installa il file come certificato CA dalle impostazioni di sicurezza.
-  Attenzione: alcune app Android non si fidano dei certificati CA installati dall'utente. Non l'ho verificato
-  per l'app Bitwarden: se non si collega, l'alternativa solida è un dominio vero con certificato Let's Encrypt
-  (togli `tls internal` dal `caddy/Caddyfile`, usa il tuo dominio in `VW_HOST` e pubblica 80/443).
-
-Non committare `caddy-root.crt` e non cancellare il volume `caddy-data`: contiene la CA, e perderla significa
-rifare la fiducia su ogni dispositivo.
+Da Windows o Linux nello stesso server puoi usare anche `http://localhost:8222`: serve se Tailscale non funziona (chiave
+scaduta, rete in errore). Passkey e WebAuthn funzionano solo dall'indirizzo `.ts.net`, perché sono legati a `VW_DOMAIN`.
 
 ## Creare l'account e chiudere le registrazioni
 
@@ -68,14 +52,14 @@ Inserisci una password lunga, copia l'hash `$argon2id$...` e mettilo in `.env` *
 ADMIN_TOKEN='$argon2id$v=19$m=65540,t=3,p=4$...'
 ```
 
-Poi `docker compose up -d vaultwarden` e apri `https://<VW_HOST>:8443/admin`.
+Poi `docker compose up -d vaultwarden` e apri `https://<nome>.<rete>.ts.net:8443/admin`.
 
 ## Migrare dal Bitwarden cloud
 
 1. Dal cloud: Strumenti → Esporta cassaforte → formato **.json (protetto da password)**.
 2. Sul tuo server: Strumenti → Importa dati → "Bitwarden (json)" e scegli il file (ti chiederà la password dell'export).
 3. Controlla che il numero di elementi corrisponda, **poi cancella il file esportato**.
-4. Sulle app/estensioni: Impostazioni → Server self-hosted → URL `https://<VW_HOST>:8443` e rifai il login.
+4. Sulle app/estensioni: Impostazioni → Server self-hosted → URL `https://<nome>.<rete>.ts.net:8443` e rifai il login.
 5. Tieni il vault cloud fino a quando non hai verificato backup e ripristino (vedi sotto).
 
 ## Backup (non saltarlo)
@@ -122,28 +106,22 @@ Fai una prova di ripristino su un'altra cartella prima di fidarti del backup.
 
 ```bash
 ./src/scripts/backup-vaultwarden.sh
-docker compose pull vaultwarden caddy && docker compose up -d vaultwarden caddy
+docker compose pull vaultwarden && docker compose up -d vaultwarden
 ```
 
 L'immagine usa `latest`: per più controllo fissa una versione (es. `vaultwarden/server:1.xx.x`) in `compose.yaml`.
 
 ## Accesso da fuori casa
 
-**Non aprire 8443 sul router.** Da fuori si usa Tailscale (vedi `tailscale.md`), che pubblica Vaultwarden in HTTPS
-con un certificato valido (niente CA da installare sul telefono):
-
-1. Nel `.env` metti `VW_DOMAIN=https://<server>.<rete>.ts.net:8443` (l'indirizzo esatto lo vedi nel pannello, sezione Rete).
-2. `docker compose up -d vaultwarden`
-3. Nell'app Bitwarden sul telefono: URL del server = `https://<server>.<rete>.ts.net:8443`.
-
-In casa continua a funzionare `https://localhost:8443` (con la CA di Caddy).
+**Non aprire 8443 sul router.** Tailscale (vedi `tailscale.md`) lo pubblica già in HTTPS nella tua rete privata, da casa e da fuori:
+nell'app Bitwarden il server è `https://<nome>.<rete>.ts.net:8443`, con Tailscale acceso sul telefono.
 
 ## Problemi comuni
 
 | Sintomo | Causa probabile |
 |---|---|
-| "Connessione non sicura" | CA di Caddy non installata sul dispositivo/browser |
-| Login/creazione account fallisce, pagina strana | Stai usando `http://` o un nome diverso da `VW_HOST` |
+| Il sito non si apre | Tailscale spento sul dispositivo, o *HTTPS Certificates* non attivo nel pannello Tailscale |
+| Login/creazione account fallisce, pagina strana | Stai usando `http://` o un indirizzo diverso da `https://<nome>.<rete>.ts.net:8443` |
 | Il vault non si apre dall'app | URL del server sbagliato (manca `https://` o la porta `:8443`) |
 | `/admin` risponde 404 | `ADMIN_TOKEN` vuoto, o apici mancanti nel `.env` (hash tagliato) |
-| Dopo `down -v` i dispositivi non si fidano più | Hai cancellato `caddy-data`: nuova CA, reinstallala |
+| Tailscale non parte e ti serve il vault | Dal server apri `http://localhost:8222` |

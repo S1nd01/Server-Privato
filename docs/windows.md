@@ -10,7 +10,7 @@
 
 Si puo' rilanciare quando vuoi: aggiorna il codice, conserva le altre impostazioni del `.env` e non cancella i dati.
 
-I dati dei servizi, le foto, i media, i giochi Steam e i backup restano in `data/` dentro la cartella del progetto
+I dati dei servizi, le foto, i media e i backup restano in `data/` dentro la cartella del progetto
 su Linux/WSL. Per riallineare il `.env` ai percorsi fissi, esegui `./src/scripts/sync-env.sh --percorsi`.
 
 Il server resta acceso solo se il PC e' acceso, con l'utente collegato a Windows e senza sospensione.
@@ -42,7 +42,7 @@ Requisiti: l'SSD (o una sua partizione) formattato **NTFS** (non exFAT) e senza 
 
 Prima di staccare l'SSD: **`wsl --shutdown`**, mai a servizi in funzione (rischio di corrompere il disco virtuale). Se l'SSD manca all'accesso a Windows, WSL non parte e i servizi restano fermi.
 
-Tutti i dati, inclusi giochi Steam, foto, film e archivio Restic, restano nella directory `data/` del progetto sul
+Tutti i dati, incluse foto, film e archivio Restic, restano nella directory `data/` del progetto sul
 filesystem Linux/WSL. Per usare un SSD esterno, sposta la distribuzione WSL come descritto sopra.
 
 ## Quanto spazio e quanta RAM

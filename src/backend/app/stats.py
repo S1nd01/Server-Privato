@@ -1,8 +1,10 @@
 """Uso di risorse: server (CPU, RAM, dischi, temperatura) e servizi (CPU, RAM, tempo di attivita', salute).
 
-I numeri dei container vengono dal demone Docker (come `docker stats`). Ogni lettura costa circa un secondo
-per container, quindi si fanno in parallelo e il risultato resta valido per qualche secondo: piu' schede aperte
-non moltiplicano il carico sul server.
+I numeri dei container vengono dal demone Docker (come `docker stats`). La CPU si calcola come differenza
+tra due letture successive (si ricorda l'ultima di ogni container): Docker risponde subito, senza il secondo di
+campionamento di `docker stats`. Solo la prima lettura di ogni container aspetta quel secondo. Il risultato resta valido
+per qualche secondo e, mentre un thread lo rinnova, gli altri ricevono l'ultimo disponibile: piu' schede aperte non
+moltiplicano il carico sul server.
 """
 import os
 import re
@@ -17,23 +19,42 @@ from docker.errors import DockerException, NotFound
 from .services import SERVICES
 
 TTL = 4.0  # secondi in cui una lettura resta valida
-_lock = threading.Lock()
+_refresh = threading.Lock()  # un solo thread alla volta rinnova la lettura
 _cache: dict = {"at": 0.0, "data": None}
-_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="stats")
+_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="stats")
+_prev: dict[str, tuple[int, int]] = {}  # nome container -> (CPU del container, CPU di sistema) dell'ultima lettura
 
 # Cartelle viste da dentro il backend (montate da compose.yaml). Quelle sullo stesso disco vengono unite.
-DISK_PATHS = [("Dati", "/data/datadir"), ("Giochi", "/data/games"), ("Foto", "/data/photos")]
+DISK_PATHS = [("Dati", "/data/datadir"), ("Foto", "/data/photos")]
 
 _HEALTH_ORDER = {"unhealthy": 3, "starting": 2, "healthy": 1}
 
 
 # ---------------------------------------------------------------- container
-def cpu_percent(raw: dict, host_cores: int) -> float | None:
-    """CPU come `docker stats`: 100 = un core intero (puo' superare 100 con piu' core)."""
+def cpu_sample(raw: dict) -> tuple[int, int] | None:
+    """(CPU usata dal container, CPU totale di sistema) in questo istante, per la lettura successiva."""
     try:
-        cpu, pre = raw["cpu_stats"], raw["precpu_stats"]
-        cpu_delta = cpu["cpu_usage"]["total_usage"] - pre["cpu_usage"]["total_usage"]
-        sys_delta = cpu["system_cpu_usage"] - pre["system_cpu_usage"]
+        cpu = raw["cpu_stats"]
+        return cpu["cpu_usage"]["total_usage"], cpu["system_cpu_usage"]
+    except (KeyError, TypeError):
+        return None
+
+
+def cpu_percent(raw: dict, host_cores: int, prev: tuple[int, int] | None = None) -> float | None:
+    """CPU come `docker stats`: 100 = un core intero (puo' superare 100 con piu' core).
+
+    Con `prev` (la lettura precedente) confronta con quella; senza, usa il campione "precpu" che Docker allega
+    quando ha aspettato un secondo.
+    """
+    try:
+        cpu = raw["cpu_stats"]
+        if prev is None:
+            pre = raw["precpu_stats"]
+            before = (pre["cpu_usage"]["total_usage"], pre["system_cpu_usage"])
+        else:
+            before = prev
+        cpu_delta = cpu["cpu_usage"]["total_usage"] - before[0]
+        sys_delta = cpu["system_cpu_usage"] - before[1]
     except (KeyError, TypeError):
         return None
     if sys_delta <= 0 or cpu_delta < 0:
@@ -85,11 +106,20 @@ def _one(client, name: str, host_cores: int):
     }
     if running:
         try:
-            raw = c.stats(stream=False)
-            info["cpu_percent"] = cpu_percent(raw, host_cores)
+            prev = _prev.get(name)
+            if prev is None:
+                raw = c.stats(stream=False)  # prima lettura: Docker campiona per un secondo e da' gia' la CPU
+            else:
+                raw = c.stats(stream=False, one_shot=True)  # risposta immediata, la CPU si ricava dalla lettura precedente
+            info["cpu_percent"] = cpu_percent(raw, host_cores, prev)
             info["mem_bytes"] = mem_used(raw)
+            sample = cpu_sample(raw)
+            if sample:
+                _prev[name] = sample
         except DockerException:
             pass
+    else:
+        _prev.pop(name, None)  # al prossimo avvio i contatori ripartono da zero
     return name, info
 
 
@@ -224,19 +254,19 @@ EXPECTED_DIRS = [
     "sonarr/config",
     "prowlarr/config",
     "qbittorrent/config",
+    "bazarr/config",
+    "kuma",
+    "ntfy",
     "photos",
     "panel",
     "pihole",
     "tailscale",
     "restore",
-    "steamcmd",
-    "steam-games",
     "immich/upload",
     "immich/postgres",
     "immich/model-cache",
     "vaultwarden",
-    "caddy/data",
-    "caddy/config",
+    "portainer",
     "backups/restic",
     "backups/vaultwarden",
 ]
@@ -254,7 +284,7 @@ def _setup() -> dict | None:
     # e quella interna (config, log) di root, per un avvio precedente senza "user:".
     for d in ("jellyfin", "jellyfin/config", "jellyfin/config/log", "jellyfin/cache",
               "seerr", "seerr/config", "seerr/config/logs",
-              "radarr", "radarr/config", "sonarr", "sonarr/config", "prowlarr", "prowlarr/config",
+              "radarr", "radarr/config", "sonarr", "sonarr/config", "prowlarr", "prowlarr/config", "bazarr/config",
               "qbittorrent", "qbittorrent/config", "media/Discoveries", "media/downloads"):
         try:
             if os.stat(os.path.join(DATA_ROOT, d)).st_uid == 0:
@@ -265,9 +295,20 @@ def _setup() -> dict | None:
 
 
 # ---------------------------------------------------------------- insieme
+def _fresh() -> bool:
+    return _cache["data"] is not None and time.monotonic() - _cache["at"] < TTL
+
+
 def collect(client) -> dict:
-    with _lock:
-        if _cache["data"] is not None and time.monotonic() - _cache["at"] < TTL:
+    if _fresh():
+        return _cache["data"]
+    # Un solo thread rinnova la lettura. Gli altri ricevono l'ultima disponibile senza aspettare; se non ce n'e'
+    # ancora nessuna (primo accesso) aspettano il risultato.
+    stale = _cache["data"]
+    if not _refresh.acquire(blocking=stale is None):
+        return stale
+    try:
+        if _fresh():
             return _cache["data"]
         host = _host()
         names = sorted({n for s in SERVICES.values() for n in s["containers"]})
@@ -280,3 +321,5 @@ def collect(client) -> dict:
         }
         _cache["data"], _cache["at"] = data, time.monotonic()
         return data
+    finally:
+        _refresh.release()

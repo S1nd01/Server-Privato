@@ -5,7 +5,7 @@
 #  - aggiunge le variabili nuove al .env e riallinea i percorsi gestiti dallo script
 #  - genera la password di Pi-hole se manca
 #  - crea le cartelle dei dati col tuo utente (altrimenti Docker le crea come root e Jellyfin non parte),
-#    comprese quelle dei giochi Steam e dei media (Film, Serie TV, Discoveries, downloads)
+#    comprese quelle dei media (Film, Serie TV, Discoveries, downloads)
 #  - la prima volta imposta i backup nella directory data/backups e genera le passphrase
 #    (mostrate UNA volta); il backup notturno di Vaultwarden e' facoltativo.
 # --percorsi e' accettato per compatibilita': i percorsi restano sempre dentro data/.
@@ -25,7 +25,6 @@ INTERACTIVE=0
 if [ -t 0 ]; then INTERACTIVE=1; fi
 project_dir="$(pwd -P)"
 data_dir="$project_dir/data"
-steam_dir="$data_dir/steam-games"
 backup_base="$data_dir/backups"
 
 # ---------------------------------------------------------------- .env
@@ -95,13 +94,11 @@ fi
 
 # ---------------------------------------------------------------- percorsi fissi dentro data/
 old_data="$(get DATA_DIR)"
-old_steam="$(get STEAM_GAMES_DIR)"
 old_photos="$(get PHOTOS_DIR)"
 old_media="$(get MEDIA_DIR)"
 old_backup="$(get BACKUP_DIR)"
 old_restic="$(get RESTIC_REPO_DIR)"
 set_kv DATA_DIR "$data_dir"
-set_kv STEAM_GAMES_DIR "$steam_dir"
 set_kv PHOTOS_DIR "$data_dir/photos"
 set_kv MEDIA_DIR "$data_dir/media"
 set_kv BACKUP_DIR "$backup_base/vaultwarden"
@@ -114,14 +111,13 @@ warn_old_path() {
   fi
 }
 warn_old_path "I dati dei servizi" "$old_data" "$data_dir"
-warn_old_path "I giochi Steam" "$old_steam" "$steam_dir"
 warn_old_path "Le foto" "$old_photos" "$data_dir/photos"
 warn_old_path "I media Jellyfin" "$old_media" "$data_dir/media"
 warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
 warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config photos panel pihole tailscale restore steamcmd steam-games immich/upload immich/postgres immich/model-cache vaultwarden caddy/data caddy/config backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
