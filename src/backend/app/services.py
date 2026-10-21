@@ -7,6 +7,7 @@ Campi opzionali:
   path        percorso aggiunto al link "Apri" (es. /admin)
   allow_stop  False = il pannello non lo ferma ne' lo riavvia (Tailscale: fermandolo perderesti l'accesso)
   ts_only     True = si apre solo dall'indirizzo Tailscale (https://<nome>.ts.net:porta): niente link "Apri" da localhost
+  group       "utility" = la scheda sta nel blocco Utility del pannello (manutenzione, compressione...), non tra i servizi
 """
 
 SERVICES = {
@@ -88,6 +89,23 @@ SERVICES = {
         "scheme": "https",
         "url_port": 9443,
     },
+    # ---- blocco Utility del pannello (group: "utility") ----
+    "manutenzione": {
+        "name": "Manutenzione",
+        "description": "Diun avvisa quando escono nuove versioni delle immagini, Autoheal riavvia ciò che smette di rispondere",
+        "containers": ["diun", "autoheal"],
+        "scheme": "http",
+        "url_port": None,  # nessuna interfaccia: le notifiche arrivano su ntfy (docs/manutenzione.md)
+        "group": "utility",
+    },
+    "compressione": {
+        "name": "Compressione video",
+        "description": "Unmanic ricodifica film e serie in HEVC per liberare spazio. Pesa molto sulla CPU: accendilo solo quando serve",
+        "containers": ["unmanic"],
+        "scheme": "http",
+        "url_port": 8888,
+        "group": "utility",
+    },
     "tailscale": {
         "name": "Tailscale",
         "description": "Accesso da fuori casa, in HTTPS",
@@ -95,5 +113,25 @@ SERVICES = {
         "scheme": "https",
         "url_port": None,
         "allow_stop": False,
+    },
+}
+
+
+# Modalita' del pannello: con un tocco accendono o spengono piu' gruppi di servizi (id di SERVICES).
+#   action    "stop" = li spegne, "start" = li accende
+#   services  gruppi toccati; tutti gli altri restano come sono
+# La modalita' e' "attiva" se tutti i suoi gruppi (quelli creati) sono gia' nello stato che lei produce.
+MODES = {
+    "risparmio": {
+        "name": "Risparmio",
+        "description": "Spegne Immich (con il riconoscimento) e i download automatici",
+        "action": "stop",
+        "services": ["immich-ml", "immich", "download"],
+    },
+    "normale": {
+        "name": "Normale",
+        "description": "Riaccende Immich e i download automatici (il riconoscimento resta com'è)",
+        "action": "start",
+        "services": ["immich", "download"],
     },
 }

@@ -45,13 +45,14 @@ abbia Tailscale acceso. Per un dispositivo senza Tailscale (per esempio una TV c
 | `https://<nome>.ts.net:6767` | Bazarr |
 | `https://<nome>.ts.net:3001` | Uptime Kuma |
 | `https://<nome>.ts.net:2586` | ntfy |
+| `https://<nome>.ts.net:8888` | Unmanic (compressione video, senza autenticazione) |
 
 L'elenco è nel file `tailscale/serve.json`: per pubblicare un nuovo servizio aggiungi una riga in `TCP` e una in `Web`
 (`"Proxy": "http://<nome-container>:<porta>"`), poi `docker compose up -d tailscale`. Un servizio che parla gia' HTTPS con
 certificato autofirmato (Portainer) usa `https+insecure://`.
 
 **Autenticazione dei servizi**: le richieste che passano da Tailscale arrivano agli altri container dalla rete Docker, quindi
-Radarr, Sonarr e Prowlarr le vedono come "indirizzi locali" (Bazarr non ha nessuna autenticazione di serie: vedi `bazarr.md`). Se la loro autenticazione e' su *Disattivata per indirizzi locali*
+Radarr, Sonarr e Prowlarr le vedono come "indirizzi locali" (Bazarr non ha nessuna autenticazione di serie: vedi `bazarr.md`; Unmanic non ne ha affatto: vedi `compressione.md`). Se la loro autenticazione e' su *Disattivata per indirizzi locali*
 (l'impostazione predefinita) chiunque sia nella tua tailnet entra senza password. Imposta *Autenticazione: Obbligatoria*
 in ciascuno (Impostazioni, Generale, Sicurezza).
 

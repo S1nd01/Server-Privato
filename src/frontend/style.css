@@ -122,6 +122,8 @@ main { padding: 1.25rem 1rem calc(var(--tab-h) + env(safe-area-inset-bottom) + 1
 .btn.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
 .btn.quiet { border-color: transparent; background: none; color: var(--muted); padding: 0 .6rem; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+.modes { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
+.btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .actions { display: flex; gap: .6rem; align-items: center; }
 .actions.wrap { flex-wrap: wrap; }
 

@@ -46,4 +46,4 @@ FlareSolverr funziona finché riesce a stare al passo con le protezioni di Cloud
 ## Risorse
 
 Bazarr occupa poche centinaia di MB. FlareSolverr a riposo poco, ma mentre risolve una sfida avvia Chromium e può arrivare a diverse centinaia di MB:
-il compose lo limita a 1 GB. Se non hai indexer che lo richiedono, tienilo spento (si ferma insieme al gruppo dal pannello).
+il compose non gli mette limiti (se la RAM finisce, Linux lo ferma per primo). Se non hai indexer che lo richiedono, tienilo spento (si ferma insieme al gruppo dal pannello).

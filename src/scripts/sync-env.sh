@@ -117,7 +117,7 @@ warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
 warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache diun kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
@@ -135,7 +135,7 @@ find_problems() {
   # e config/log di root (creati da un avvio precedente senza "user:"), ed e' proprio quello che fa dire
   # "permission denied" a Jellyfin e Seerr.
   local d
-  for d in jellyfin seerr radarr sonarr prowlarr qbittorrent media/Discoveries media/downloads; do
+  for d in jellyfin seerr radarr sonarr prowlarr qbittorrent unmanic media/Discoveries media/downloads; do
     if [ -e "$data_dir/$d" ] && [ -n "$(find "$data_dir/$d" ! -uid "$(id -u)" -print -quit 2>/dev/null)" ]; then
       fix_deep+=("$data_dir/$d")
     fi

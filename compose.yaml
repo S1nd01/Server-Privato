@@ -53,6 +53,8 @@ services:
       - ${DATA_DIR}/backups/restic:/data/restic-repo:ro
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/data/restic-pass:ro
       - ${DATA_DIR}/panel:/data/panel   # stato della pianificazione
+    labels:
+      - diun.enable=false   # immagine costruita in locale: niente da controllare su un registro
     restart: unless-stopped
 
   # ---------- Tailscale: accesso da fuori casa, in HTTPS ----------
@@ -92,6 +94,8 @@ services:
     depends_on:
       - immich-redis
       - immich-postgres
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   immich-machine-learning:
@@ -140,6 +144,8 @@ services:
       - ${DATA_DIR}/media/Discoveries:/media/Discoveries
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8096:8096"
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   # ---------- Richieste e download automatici (docs/seerr.md) ----------
@@ -168,8 +174,6 @@ services:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     logging: *logging
-    cpu_shares: 512
-    mem_limit: 2g
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -188,7 +192,6 @@ services:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
     logging: *logging
-    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -197,15 +200,22 @@ services:
       - ${DATA_DIR}/prowlarr/config:/config
     ports:
       - "${BIND_ADDR:-127.0.0.1}:9696:9696"
-    systctls:
-      - net.ipv6.conf.all.disable_ipv6=0
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1   # senza, gli indexer dietro Cloudflare davano "Resource temporarily unavailable" (rete IPv6 non funzionante)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:9696/ping || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
     logging: *logging
-    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -218,13 +228,20 @@ services:
     depends_on:
       - qbittorrent
       - prowlarr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:7878/ping || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
     logging: *logging
-    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -237,6 +254,14 @@ services:
     depends_on:
       - qbittorrent
       - prowlarr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:8989/ping || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   # Sottotitoli automatici per Radarr e Sonarr (docs/bazarr.md). Stesso percorso /media degli altri: scrive i .srt accanto ai video.
@@ -244,7 +269,6 @@ services:
     image: lscr.io/linuxserver/bazarr:latest
     container_name: bazarr
     logging: *logging
-    cpu_shares: 512
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -260,17 +284,15 @@ services:
     restart: unless-stopped
 
   # Browser headless che Prowlarr usa per gli indexer protetti da Cloudflare. Nessuna porta pubblicata: lo chiama solo Prowlarr
-  # (http://flaresolverr:8191). Quando risolve una sfida usa parecchia RAM: il limite protegge il resto del server.
+  # (http://flaresolverr:8191). Quando risolve una sfida usa parecchia RAM: se la memoria finisce e' il primo a essere fermato (oom_score_adj).
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
     logging: *logging
-    cpu_shares: 256
     oom_score_adj: 500
     environment:
       TZ: ${TZ}
       LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
-    mem_limit: 1g
     restart: unless-stopped
 
   # ---------- Vaultwarden ----------
@@ -293,6 +315,8 @@ services:
       - "127.0.0.1:8222:80"
     volumes:
       - ${DATA_DIR}/vaultwarden:/data
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   # ---------- Pi-hole ----------
@@ -311,6 +335,8 @@ services:
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/tcp"
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/udp"
       - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   # ---------- Portainer: gestione grafica di Docker ----------
@@ -339,6 +365,8 @@ services:
       - ${DATA_DIR}/kuma:/app/data
     ports:
       - "${BIND_ADDR:-127.0.0.1}:3001:3001"
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   # Notifiche push sul telefono (app ntfy). Accesso solo con utente e password: si crea con `ntfy user add` (docs/ntfy.md).
@@ -359,6 +387,85 @@ services:
       - ${DATA_DIR}/ntfy:/var/lib/ntfy
     ports:
       - "${BIND_ADDR:-127.0.0.1}:2586:80"
+    restart: unless-stopped
+
+  # ---------- Utility: manutenzione (docs/manutenzione.md) ----------
+  # Nel pannello sono un unico interruttore ("Manutenzione"): Diun e Autoheal pesano pochi MB e di solito restano accesi.
+  # Diun NON aggiorna nulla: controlla i registri e ti manda una notifica ntfy quando esce una nuova versione di un'immagine.
+  # Aggiorni tu: docker compose pull && docker compose up -d
+  diun:
+    image: crazymax/diun:latest
+    container_name: diun
+    logging: *logging
+    command: serve
+    cpu_shares: 256
+    mem_limit: 128m
+    environment:
+      TZ: ${TZ}
+      LOG_LEVEL: info
+      DIUN_WATCH_WORKERS: "2"
+      DIUN_WATCH_SCHEDULE: "${DIUN_SCHEDULE:-0 8 * * *}"   # ogni giorno alle 8; se il server e' spento passa al controllo dopo
+      DIUN_WATCH_JITTER: 30s
+      DIUN_WATCH_FIRSTCHECKNOTIF: "false"   # al primo giro memorizza e basta, niente raffica di notifiche
+      DIUN_PROVIDERS_DOCKER: "true"
+      DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT: "true"   # tutte le immagini, tranne i container con l'etichetta diun.enable=false
+      DIUN_NOTIF_NTFY_ENDPOINT: http://ntfy:80
+      DIUN_NOTIF_NTFY_TOPIC: ${DIUN_NTFY_TOPIC:-homeserver}
+      # ntfy e' in deny-all: serve un utente con permesso di scrittura (docs/manutenzione.md)
+      DIUN_NOTIF_NTFY_USERNAME: ${DIUN_NTFY_USER:-}
+      DIUN_NOTIF_NTFY_PASSWORD: ${DIUN_NTFY_PASSWORD:-}
+    volumes:
+      - ${DATA_DIR}/diun:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # Riavvia i container che Docker segna come "unhealthy". Agisce SOLO su quelli con l'etichetta autoheal=true
+  # (Jellyfin, Immich, Radarr, Sonarr, Prowlarr, Vaultwarden, Pi-hole, Uptime Kuma): un controllo di salute sbagliato su un
+  # servizio senza etichetta non puo' farlo riavviare in continuazione. I container fermati dal pannello non li tocca.
+  # Monta il socket Docker in scrittura (come backend e Portainer): chi lo controlla controlla la macchina.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    logging: *logging
+    cpu_shares: 256
+    mem_limit: 64m
+    environment:
+      TZ: ${TZ}
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "30"
+      AUTOHEAL_START_PERIOD: "120"   # attesa dopo l'avvio di Autoheal prima del primo controllo
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "20"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  # ---------- Utility: compressione video (docs/compressione.md) ----------
+  # Ricodifica in HEVC i film e le serie GIA' in libreria per liberare spazio. Nel pannello ha un interruttore a parte
+  # (gruppo Utility): tienilo spento finche' non serve, la CPU al 100% per ore rallenta Jellyfin e tutto il resto.
+  # Non ha nessuna autenticazione: per questo la porta e' solo su 127.0.0.1 (e da Tailscale, che e' solo tuo).
+  # Monta /media con lo stesso percorso di Radarr e Sonarr: i file ricompressi restano dove li aspettano.
+  unmanic:
+    image: josh5/unmanic:latest
+    container_name: unmanic
+    logging: *logging
+    cpus: "${UNMANIC_CPUS:-2}"        # tetto di CPU: piu' basso dei core del server, cosi' il resto respira
+    cpu_shares: 256
+    mem_limit: ${UNMANIC_MEM:-2g}     # 4K e preset lenti possono volerne di piu'
+    oom_score_adj: 500
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/unmanic/config:/config
+      - ${DATA_DIR}/unmanic/cache:/tmp/unmanic   # file temporanei della conversione (un file per worker)
+      - ${DATA_DIR}/media:/media
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8888:8888"
+    # Accelerazione hardware (Intel QuickSync / VAAPI): togli il commento SOLO se /dev/dri esiste sul server,
+    # altrimenti Docker non avvia il container. Non c'e' in WSL ne' sul Raspberry Pi.
+    # devices:
+    #   - /dev/dri:/dev/dri
     restart: unless-stopped
 
   # ---------- Strumenti (non partono con `up`) ----------

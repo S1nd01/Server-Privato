@@ -166,15 +166,29 @@ function makeCard({ act }) {
   return { el, patch };
 }
 
+// Sostituisce i figli solo se l'elenco o l'ordine e' cambiato: cosi' il focus sui pulsanti non si perde a ogni aggiornamento.
+function place(parent, els) {
+  const cur = Array.from(parent.children);
+  if (cur.length !== els.length || els.some((e, i) => e !== cur[i])) parent.replaceChildren(...els);
+}
+
 export function servizi(root, ctx) {
   const alerts = h("div", { class: "alerts", hidden: true });
   const hostBox = h("div", { class: "panel" }, h("p", { class: "empty" }, "Leggo i dati del server…"));
   const grid = h("div", { class: "cards" });
+  const utilGrid = h("div", { class: "cards" });   // blocco Utility: i servizi con group "utility" (manutenzione, compressione...)
   const hostSection = section("Server", hostBox);
   const cardsSection = section("Servizi", grid);
+  const utilSection = section("Utility", utilGrid);
+  utilSection.hidden = true;
+  // Modalità: pulsanti che accendono o spengono più gruppi insieme (definite in src/backend/app/services.py)
+  const modesRow = h("div", { class: "modes" });
+  const modesNote = h("p", { class: "hint" });
+  const modesSection = section("Modalità", modesRow, modesNote);
+  modesSection.hidden = true;
   // su schermo largo queste sezioni occupano tutta la larghezza: le card si affiancano e vanno a capo
-  for (const el of [alerts, hostSection, cardsSection]) el.classList.add("wide");
-  root.append(alerts, hostSection, cardsSection);
+  for (const el of [alerts, hostSection, modesSection, cardsSection, utilSection]) el.classList.add("wide");
+  root.append(alerts, hostSection, modesSection, cardsSection, utilSection);
   const cards = new Map();
   const busy = new Set();
   let last = null;
@@ -186,6 +200,48 @@ export function servizi(root, ctx) {
     try { await api(`/services/${s.id}/${action}`, { method: "POST" }); }
     catch (e) { toast(e.message, "error"); }
     busy.delete(s.id);
+    await update();
+  }
+
+  // ---- modalità ----
+  let modeDefs = null;   // si leggono una volta sola: non cambiano e non costano una chiamata a Docker
+  let modeBusy = false;
+  const modeBtns = new Map();
+
+  // Attiva se tutti i suoi gruppi (quelli già creati) sono nello stato che la modalità produce.
+  function modeActive(m, services) {
+    const want = m.action === "stop" ? "stopped" : "running";
+    const sts = m.services.map((id) => services.find((s) => s.id === id)).filter((s) => s && s.status !== "not_created");
+    return sts.length > 0 && sts.every((s) => s.status === want);
+  }
+
+  function renderModes(services) {
+    if (!modeDefs || !modeDefs.length) { modesSection.hidden = true; return; }
+    modesSection.hidden = false;
+    const btns = modeDefs.map((m) => {
+      let b = modeBtns.get(m.id);
+      if (!b) { b = h("button", { class: "btn", type: "button", onclick: () => applyMode(m) }); modeBtns.set(m.id, b); }
+      b.textContent = m.name;
+      b.title = m.description;
+      b.setAttribute("aria-pressed", String(modeActive(m, services)));
+      b.disabled = modeBusy;
+      return b;
+    });
+    place(modesRow, btns);
+    const on = modeDefs.find((m) => modeActive(m, services));
+    modesNote.textContent = on ? on.description : modeDefs.map((m) => `${m.name}: ${m.description}`).join(" · ");
+  }
+
+  async function applyMode(m) {
+    modeBusy = true;
+    m.services.forEach((id) => busy.add(id));
+    if (last) render();
+    try {
+      const r = await api(`/modes/${m.id}/apply`, { method: "POST" });
+      toast(`Modalità ${m.name} applicata` + (r.skipped && r.skipped.length ? ` (${r.skipped.length} container non creati, saltati)` : ""));
+    } catch (e) { toast(e.message, "error"); }
+    modeBusy = false;
+    m.services.forEach((id) => busy.delete(id));
     await update();
   }
 
@@ -218,14 +274,17 @@ export function servizi(root, ctx) {
     const { services, st } = last;
     const host = st && st.host;
     hostBox.replaceChildren(...(host ? renderHost(host) : [h("p", { class: "empty" }, "Dati del server non disponibili.")]));
-    const els = services.map((s) => {
+    const main = [], util = [];
+    services.forEach((s) => {
       let c = cards.get(s.id);
       if (!c) { c = makeCard({ act }); cards.set(s.id, c); }
       c.patch(s, st && st.services && st.services[s.id], host, busy.has(s.id));
-      return c.el;
+      (s.group === "utility" ? util : main).push(c.el);
     });
-    const cur = Array.from(grid.children);
-    if (cur.length !== els.length || els.some((e, i) => e !== cur[i])) grid.replaceChildren(...els);
+    place(grid, main);
+    place(utilGrid, util);
+    utilSection.hidden = util.length === 0;
+    renderModes(services);
     renderAlerts(services, st);
   }
 
@@ -237,6 +296,7 @@ export function servizi(root, ctx) {
   async function update() {
     try {
       const services = await api("/services");
+      if (!modeDefs) modeDefs = await api("/modes").catch(() => null);   // se manca, la sezione resta nascosta e si riprova al giro dopo
       const key = services.map((s) => s.id + s.status).join();
       let st = last ? last.st : null;
       if (key !== statesKey || Date.now() - statsAt >= STATS_EVERY_MS) {
@@ -252,6 +312,9 @@ export function servizi(root, ctx) {
       cards.clear();
       last = null;
       grid.replaceChildren(errorBox(e));
+      utilGrid.replaceChildren();
+      utilSection.hidden = true;
+      modesSection.hidden = true;
     }
   }
   return { update };

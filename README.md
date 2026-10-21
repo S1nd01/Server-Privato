@@ -39,6 +39,7 @@ Pensato per un **Raspberry Pi** (8 GB di RAM consigliati) con un SSD esterno; fu
 | **Rete** | Pi-hole, Tailscale | Blocco di pubblicità e tracker per tutta la casa; accesso da fuori e proxy HTTPS unico |
 | **Controllo** | Pannello, Uptime Kuma, ntfy, Portainer | Interruttori per ogni gruppo di servizi, controllo che tutto risponda, notifiche push e gestione grafica di Docker |
 | **Backup** | Restic, backup di Vaultwarden | Archivi cifrati AES-256, automatici ogni notte |
+| **Utility** | Diun, Autoheal, Unmanic | Avviso quando escono aggiornamenti, riavvio automatico di ciò che non risponde, compressione dei video in libreria |
 
 ## Come è fatto
 
@@ -90,10 +91,12 @@ Le porte sono pubblicate solo su `127.0.0.1`: dal telefono o da un altro PC si u
 | Uptime Kuma | Controllo dei servizi | 3001 | [uptime-kuma.md](docs/uptime-kuma.md) |
 | ntfy | Notifiche push | 2586 | [ntfy.md](docs/ntfy.md) |
 | Portainer | Gestione di Docker | 9443 (certificato autofirmato) | [portainer.md](docs/portainer.md) |
+| Diun · Autoheal | Avvisi di aggiornamento · riavvio automatico | nessuna | [manutenzione.md](docs/manutenzione.md) |
+| Unmanic | Compressione video (di solito spento) | 8888 | [compressione.md](docs/compressione.md) |
 | Tailscale | Accesso e proxy HTTPS | nessuna | [tailscale.md](docs/tailscale.md) |
 | Restic | Backup (parte a richiesta) | nessuna | [restic.md](docs/restic.md) |
 
-20 container sempre attivi, più Restic quando serve.
+23 container, più Restic quando serve. Unmanic (compressione) di solito resta spento: si accende dal pannello quando serve.
 
 ## Requisiti
 
@@ -135,7 +138,8 @@ Non serve toccare il `.env`: lo crea `start.sh` tramite `sync-env.sh`, insieme a
    - **Radarr, Sonarr, Prowlarr:** *Autenticazione: Obbligatoria* ([guida](docs/seerr.md));
    - **Bazarr:** autenticazione ([guida](docs/bazarr.md));
    - **Uptime Kuma e Portainer:** il primo amministratore, subito dopo l'avvio ([Kuma](docs/uptime-kuma.md), [Portainer](docs/portainer.md));
-   - **ntfy:** il tuo utente ([guida](docs/ntfy.md)).
+   - **ntfy:** il tuo utente ([guida](docs/ntfy.md));
+   - **Diun:** l'utente ntfy per le notifiche degli aggiornamenti ([guida](docs/manutenzione.md)).
 
 Avvio parziale: `docker compose up -d --build frontend backend vaultwarden`.
 
@@ -153,11 +157,13 @@ Per un dispositivo senza Tailscale, come una TV con Jellyfin, serve `BIND_ADDR=0
 
 Una PWA a tre sezioni, in HTML e JavaScript senza librerie.
 
-- **Servizi:** una scheda per gruppo con stato, CPU, RAM, tempo di attività, salute e riavvii; interruttori di avvio, arresto e riavvio; link "Apri". Mostra anche CPU, carico, RAM, dischi, temperatura e uptime del server.
+- **Servizi:** in alto i pulsanti delle **modalità** (Risparmio e Normale, [guida](docs/risparmio.md)); poi una scheda per gruppo con stato, CPU, RAM, tempo di attività, salute e riavvii; interruttori di avvio, arresto e riavvio; link "Apri". Mostra anche CPU, carico, RAM, dischi, temperatura e uptime del server.
 - **Backup:** prepara l'archivio, avvia il backup, pulisce le copie vecchie, controlla l'archivio e mostra log e copie esistenti.
 - **Rete:** stato di Tailscale, indirizzo HTTPS, dispositivi collegati e installazione dell'app.
 
-Gli interruttori sono il modo più semplice per risparmiare RAM: **Download automatici** (sei servizi) e **Immich, riconoscimento** si spengono quando non servono. Tailscale non si ferma dal pannello, perché perderesti l'accesso.
+Il blocco **Utility** raccoglie le schede di servizio al server: **Manutenzione** (Diun e Autoheal, sempre accesi) e **Compressione video** (Unmanic, acceso solo quando serve). Un servizio entra nel blocco con `"group": "utility"` in `src/backend/app/services.py`.
+
+Gli interruttori sono il modo più semplice per risparmiare RAM: **Download automatici** (sei servizi), **Immich, riconoscimento** e **Compressione video** si spengono quando non servono. Tailscale non si ferma dal pannello, perché perderesti l'accesso.
 
 ## Dati e backup
 
@@ -168,6 +174,7 @@ data/
 ├── immich/         upload · postgres · model-cache
 ├── vaultwarden/    pihole/    jellyfin/    seerr/    radarr/    sonarr/
 ├── prowlarr/       qbittorrent/    bazarr/    kuma/    ntfy/    portainer/
+├── unmanic/        diun/
 ├── tailscale/      panel/
 └── backups/        restic · vaultwarden
 ```
@@ -179,7 +186,7 @@ data/
 Attenzione:
 - la passphrase si copia **fuori dal server**, senza i backup non si aprono;
 - la copia è solo locale: una copia fuori casa non è ancora collegata;
-- Bazarr, Uptime Kuma, ntfy e Portainer non sono ancora tra le fonti di Restic.
+- Bazarr, Uptime Kuma, ntfy, Portainer, Unmanic e Diun non sono ancora tra le fonti di Restic.
 
 ## Sicurezza
 
@@ -190,13 +197,14 @@ Obiettivo realistico: un server in casa, raggiungibile da fuori **solo** via Tai
 - **Token del pannello:** 256 bit casuali, nel `.env` c'è solo l'hash SHA-256. Letto solo dall'header, confronto a tempo costante, blocco dopo 10 errori al minuto.
 - **Pannello web:** CSP rigida, niente script o stili inline, `X-Frame-Options: DENY`.
 - **Pannelli pubblicati da Tailscale:** Radarr, Sonarr e Prowlarr vedono le richieste come locali, quindi l'autenticazione obbligatoria va impostata in ciascuno. ntfy è in `deny-all`.
+- **Unmanic** non ha nessuna autenticazione: la porta è su `127.0.0.1` e da fuori si arriva solo da Tailscale. Non aprirla in LAN.
 - **Cifratura:** vault AES-256 lato client, backup AES-256, traffico WireGuard più HTTPS.
 - **Pi-hole:** nel `.env.example` il DNS ascolta su un IP della LAN e la pagina web su `0.0.0.0`. È l'unica eccezione al "tutto locale": controlla che sia voluta.
 
 ## Risorse e ottimizzazione
 
-- **Limiti di RAM:** Immich ML 3 GB, qBittorrent 2 GB, FlareSolverr 1 GB (prudenti, non misurati sul tuo server).
-- **Priorità CPU bassa** per i servizi in background: Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent, FlareSolverr, Immich ML.
+- **Limiti di RAM:** Immich ML 3 GB e Unmanic 2 GB (prudenti, non misurati sul tuo server). Unmanic ha anche un tetto di 2 core (`UNMANIC_CPUS`). Il gruppo Download (qBittorrent, FlareSolverr, Radarr, Sonarr, Prowlarr, Bazarr) **non ha limiti**: per liberare risorse si spegne dal pannello, anche con la modalità Risparmio.
+- **Priorità CPU bassa** per Immich ML, Unmanic, Diun e Autoheal.
 - **Protezione dall'esaurimento di RAM:** Vaultwarden e Tailscale sono gli ultimi a essere fermati da Linux.
 - **Log a rotazione:** 3 file da 10 MB per container.
 - **Backup Restic** a bassa priorità e con al massimo 2 core.
@@ -253,8 +261,10 @@ Il backend è FastAPI; se `API_TOKEN_HASH` è impostato ogni chiamata, tranne `h
 | Metodo | Path | Descrizione |
 |---|---|---|
 | GET | `/api/health` | stato del backend, sempre senza token |
-| GET | `/api/services` · `/api/services/{id}` | stato dei gruppi di servizi (`immich`, `immich-ml`, `jellyfin`, `seerr`, `download`, `vaultwarden`, `pihole`, `uptime-kuma`, `ntfy`, `portainer`, `tailscale`) |
+| GET | `/api/services` · `/api/services/{id}` | stato dei gruppi di servizi (`immich`, `immich-ml`, `jellyfin`, `seerr`, `download`, `vaultwarden`, `pihole`, `uptime-kuma`, `ntfy`, `portainer`, `manutenzione`, `compressione`, `tailscale`) |
 | POST | `/api/services/{id}/start` · `stop` · `restart` | azione su un gruppo |
+| GET | `/api/modes` | le modalità del pannello (Risparmio, Normale) |
+| POST | `/api/modes/{id}/apply` | applica una modalità: accende o spegne in blocco i suoi gruppi |
 | GET | `/api/stats` | server (CPU, RAM, dischi, temperatura) e per servizio (CPU, RAM, uptime, salute, riavvii); segnala cartelle mancanti |
 | GET | `/api/tailscale/status` | stato Tailscale, indirizzo HTTPS, dispositivi |
 | GET/POST | `/api/backup/status` · `/api/backup/jobs` · `/api/backup/snapshots` | backup Restic |
@@ -286,6 +296,7 @@ Server-Privato/
 | Password | [vaultwarden.md](docs/vaultwarden.md) |
 | Rete e accesso | [tailscale.md](docs/tailscale.md) · [pihole.md](docs/pihole.md) |
 | Controllo e notifiche | [uptime-kuma.md](docs/uptime-kuma.md) · [ntfy.md](docs/ntfy.md) · [portainer.md](docs/portainer.md) |
+| Utility | [manutenzione.md](docs/manutenzione.md) · [compressione.md](docs/compressione.md) · [risparmio.md](docs/risparmio.md) |
 | Backup | [restic.md](docs/restic.md) |
 | Sicurezza | [security.md](docs/security.md) |
 | Risorse | [ottimizzazione.md](docs/ottimizzazione.md) |
@@ -294,7 +305,8 @@ Server-Privato/
 
 ## Da decidere
 
-- Aggiungere ai backup Bazarr, Uptime Kuma, ntfy e Portainer.
-- Modalità del pannello ("Risparmio", "Tutto acceso"), spegnimento programmato e limiti di RAM calibrati sull'uso reale.
+- Aggiungere ai backup Bazarr, Uptime Kuma, ntfy, Portainer e Unmanic.
+- Altre utility da valutare: Filebrowser, Unbound, CrowdSec, Beszel e Watchtower (Diun avvisa soltanto; Watchtower aggiornerebbe da solo).
+- Spegnimento programmato e limiti di RAM calibrati sull'uso reale.
 - Navidrome per la musica e Maintainerr per la pulizia della libreria (solo con conferma manuale).
 - Una copia dei backup fuori casa.

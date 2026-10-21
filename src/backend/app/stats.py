@@ -255,6 +255,9 @@ EXPECTED_DIRS = [
     "prowlarr/config",
     "qbittorrent/config",
     "bazarr/config",
+    "unmanic/config",
+    "unmanic/cache",
+    "diun",
     "kuma",
     "ntfy",
     "photos",
@@ -285,7 +288,8 @@ def _setup() -> dict | None:
     for d in ("jellyfin", "jellyfin/config", "jellyfin/config/log", "jellyfin/cache",
               "seerr", "seerr/config", "seerr/config/logs",
               "radarr", "radarr/config", "sonarr", "sonarr/config", "prowlarr", "prowlarr/config", "bazarr/config",
-              "qbittorrent", "qbittorrent/config", "media/Discoveries", "media/downloads"):
+              "qbittorrent", "qbittorrent/config", "unmanic", "unmanic/config", "unmanic/cache",
+              "media/Discoveries", "media/downloads"):
         try:
             if os.stat(os.path.join(DATA_ROOT, d)).st_uid == 0:
                 root_owned.append(d)

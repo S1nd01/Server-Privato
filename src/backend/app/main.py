@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 import anyio.to_thread
@@ -8,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from . import backup, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
-from .services import SERVICES
+from .services import MODES, SERVICES
 
 
 @asynccontextmanager
@@ -64,6 +65,7 @@ def _service_status(states: dict[str, str], sid: str) -> dict:
         "url_port": meta["url_port"],
         "path": meta.get("path", ""),
         "ts_only": meta.get("ts_only", False),
+        "group": meta.get("group", ""),
         "can_stop": meta.get("allow_stop", True),
         "status": overall,
         "containers": containers,
@@ -132,3 +134,52 @@ def stop(sid: str):
 @app.post("/api/services/{sid}/restart")
 def restart(sid: str):
     return _act(sid, "restart")
+
+
+# ---------------------------------------------------------------- modalita'
+@app.get("/api/modes")
+def list_modes():
+    """Le modalita' definite in services.py (nessuna chiamata a Docker: lo stato "attiva" lo ricava il pannello dai servizi)."""
+    return [
+        {"id": mid, "name": m["name"], "description": m["description"], "action": m["action"], "services": m["services"]}
+        for mid, m in MODES.items()
+    ]
+
+
+@app.post("/api/modes/{mid}/apply")
+def apply_mode(mid: str):
+    """Accende o spegne in blocco i gruppi della modalita'. I container non ancora creati si saltano; gli altri si fermano
+    (o si avviano) a 4 per volta, cosi' un gruppo grosso non aspetta i 10 secondi di arresto di ogni container uno dopo l'altro."""
+    if mid not in MODES:
+        raise HTTPException(404, f"Modalita' sconosciuta: {mid}")
+    mode = MODES[mid]
+    action = mode["action"]
+    client = _client()
+    targets: list[str] = []
+    for sid in mode["services"]:
+        meta = SERVICES[sid]
+        if action == "stop" and not meta.get("allow_stop", True):
+            continue  # Tailscale: fermarlo farebbe perdere l'accesso
+        targets.extend(meta["containers"])
+
+    def one(name: str):
+        try:
+            c = client.containers.get(name)
+            getattr(c, action)()
+            return name, "ok"
+        except NotFound:
+            return name, "skipped"
+        except DockerException as exc:
+            return name, f"error: {exc}"
+
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="mode") as pool:
+        results = list(pool.map(one, targets))
+    errors = [f"{n} ({r[7:]})" for n, r in results if r.startswith("error")]
+    if errors:
+        raise HTTPException(502, "Alcuni container non hanno risposto: " + ", ".join(errors))
+    states = _snapshot(client)
+    return {
+        "mode": mid,
+        "skipped": [n for n, r in results if r == "skipped"],
+        "services": [_service_status(states, sid) for sid in SERVICES],
+    }
