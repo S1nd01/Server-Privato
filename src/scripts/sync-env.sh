@@ -117,7 +117,7 @@ warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
 warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache diun kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache recyclarr/config maintainerr beszel/data beszel/socket beszel/agent diun kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
@@ -135,7 +135,7 @@ find_problems() {
   # e config/log di root (creati da un avvio precedente senza "user:"), ed e' proprio quello che fa dire
   # "permission denied" a Jellyfin e Seerr.
   local d
-  for d in jellyfin seerr radarr sonarr prowlarr qbittorrent unmanic media/Discoveries media/downloads; do
+  for d in jellyfin seerr radarr sonarr prowlarr qbittorrent unmanic recyclarr maintainerr media/Discoveries media/downloads; do
     if [ -e "$data_dir/$d" ] && [ -n "$(find "$data_dir/$d" ! -uid "$(id -u)" -print -quit 2>/dev/null)" ]; then
       fix_deep+=("$data_dir/$d")
     fi
@@ -163,6 +163,12 @@ if [ "$made" = 0 ] || [ "${#fix_flat[@]}" -gt 0 ] || [ "${#fix_deep[@]}" -gt 0 ]
   case "$ans" in [nN]*) printf 'Va bene. Quando vuoi:\n  %s\npoi rilancia ./src/scripts/sync-env.sh\n' "${cmds[@]}" >&2; exit 1 ;; esac
   for c in "${cmds[@]}"; do $c || die "Comando non riuscito: $c"; done
   make_dirs || die "Le cartelle non si creano ancora: controlla i permessi di $data_dir."
+fi
+
+# Recyclarr: il modello di configurazione si copia solo se manca; da quel momento data/recyclarr/config/recyclarr.yml e' tuo
+if [ ! -f "$data_dir/recyclarr/config/recyclarr.yml" ] && [ -f recyclarr/recyclarr.yml ]; then
+  cp recyclarr/recyclarr.yml "$data_dir/recyclarr/config/recyclarr.yml"
+  echo "Recyclarr: creato data/recyclarr/config/recyclarr.yml dal modello (docs/recyclarr.md)."
 fi
 
 # ---------------------------------------------------------------- backup (Restic e Vaultwarden)

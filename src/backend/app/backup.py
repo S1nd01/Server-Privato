@@ -42,6 +42,7 @@ STATE_FILE = Path("/data/panel/state.json")
 SOURCES = [
     "vaultwarden", "immich/upload", "pihole", "jellyfin/config",
     "seerr/config", "radarr/config", "sonarr/config", "prowlarr/config", "qbittorrent/config",
+    "recyclarr/config", "maintainerr",
 ]
 EXCLUDES = [
     "seerr/config/logs",
@@ -56,6 +57,7 @@ EXCLUDES = [
     "vaultwarden/icon_cache",
     "vaultwarden/tmp",
     "jellyfin/config/log",
+    "maintainerr/logs",
 ]
 
 _lock = threading.Lock()

@@ -257,6 +257,11 @@ EXPECTED_DIRS = [
     "bazarr/config",
     "unmanic/config",
     "unmanic/cache",
+    "recyclarr/config",
+    "maintainerr",
+    "beszel/data",
+    "beszel/socket",
+    "beszel/agent",
     "diun",
     "kuma",
     "ntfy",
@@ -289,6 +294,7 @@ def _setup() -> dict | None:
               "seerr", "seerr/config", "seerr/config/logs",
               "radarr", "radarr/config", "sonarr", "sonarr/config", "prowlarr", "prowlarr/config", "bazarr/config",
               "qbittorrent", "qbittorrent/config", "unmanic", "unmanic/config", "unmanic/cache",
+              "recyclarr", "recyclarr/config", "maintainerr",
               "media/Discoveries", "media/downloads"):
         try:
             if os.stat(os.path.join(DATA_ROOT, d)).st_uid == 0:

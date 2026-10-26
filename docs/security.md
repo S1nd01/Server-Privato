@@ -50,10 +50,20 @@ sul server, il token non serve più. Il limite dei tentativi è per client visto
 - Il DNS di Pi-hole ascolta su `127.0.0.1` finché non decidi diversamente (`PIHOLE_DNS_BIND`).
 - Radarr, Sonarr, Prowlarr e qBittorrent non sono pubblicati in Tailscale (solo Seerr lo è): sono pannelli di amministrazione.
   Imposta in ciascuno un utente e una password al primo accesso (docs/seerr.md). Il Seerr raggiungibile da Tailscale usa gli utenti di Jellyfin.
+- Unmanic e Maintainerr non chiedono password di serie: stanno su `127.0.0.1` e si raggiungono solo da Tailscale. Beszel e il suo agente non pubblicano nulla in più
+  (socket condiviso); l'agente monta il socket Docker in sola lettura.
+- Unbound sta su una rete Docker privata (`10.89.53.0/28`) condivisa solo con Pi-hole e non pubblica porte.
 - Il container Tailscale non si ferma né si riavvia dal pannello: se ti colleghi tramite lui, perderesti l'accesso.
 - Sulla WSL con rete "mirrored": non usare `-DefaultInboundAction Allow`; con `BIND_ADDR=127.0.0.1` non serve aprire nulla.
 - Gli indirizzi `.ts.net` finiscono nei registri pubblici dei certificati (Certificate Transparency): il nome è visibile,
   i contenuti no. Non metterci nomi che non vuoi rendere pubblici.
+
+## Credenziali dimenticate
+
+Il recupero passa **solo dal terminale del server** (`./src/scripts/recupera-credenziali.sh`, guida in [credenziali.md](credenziali.md)). La scheda **Accessi** del pannello mostra dove sta
+ogni credenziale e il comando da lanciare, ma non rivela e non reimposta nulla: se potesse, chi ottiene il token del pannello (che equivale a root sul server) avrebbe in più anche tutte le altre password.
+Le uniche password in chiaro sul server sono quelle che i servizi richiedono così: `PIHOLE_PASSWORD` e `IMMICH_DB_PASSWORD` nel `.env` (permessi 600) e i due file delle passphrase dei backup nella tua home.
+Il token del pannello e quello di `/admin` di Vaultwarden sono solo hash, e la password master di Vaultwarden non esiste sul server.
 
 ## Cifratura nei vari punti
 

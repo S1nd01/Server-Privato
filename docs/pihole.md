@@ -12,3 +12,5 @@ Per usarlo davvero su tutta la rete di casa:
 3. Nel router imposta quell'IP come DNS della rete. Se Pi-hole è spento, la rete non risolve i nomi: tieni un DNS di riserva.
 
 Attenzione su Windows/WSL: la porta 53 può essere occupata; in quel caso usalo solo per prove (127.0.0.1) e passa al vero server per l'uso in rete.
+
+Per fargli risolvere i nomi da solo, senza Google o Cloudflare come intermediari, c'è [Unbound](unbound.md): `./src/scripts/pihole-unbound.sh on`.

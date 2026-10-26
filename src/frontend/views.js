@@ -470,5 +470,46 @@ export function rete(root, ctx) {
   return { update };
 }
 
-export const VIEWS = { servizi, backup, rete };
-export const TITLES = { servizi: "Servizi", backup: "Backup", rete: "Rete" };
+
+// ---------------------------------------------------------------- Accessi (dove stanno le credenziali e come si recuperano)
+// Il pannello non mostra e non reimposta nessuna password: elenca i comandi da lanciare dal terminale del server (docs/credenziali.md).
+const RECOVERY_LABEL = { mostra: "Si può rileggere", reimposta: "Si reimposta", impossibile: "Non recuperabile" };
+const RECOVERY_LED = { mostra: "running", reimposta: "partial", impossibile: "failed" };
+
+export function accessi(root, ctx) {
+  const intro = h("div", { class: "panel" }, empty("Carico l'elenco…"));
+  const list = h("ul", { class: "rows plain" });
+  root.append(section("Accessi e recupero", intro), list);
+
+  const copy = async (text) => {
+    try { await navigator.clipboard.writeText(text); toast("Comando copiato"); } catch { toast("Copia non riuscita: selezionalo a mano", "error"); }
+  };
+
+  function item(it) {
+    const kids = [
+      h("div", { class: "line" }, h("div", { class: "rowmain static" }, led(RECOVERY_LED[it.recovery] || "partial"),
+        h("span", { class: "text" }, h("strong", {}, it.name), h("small", {}, `${RECOVERY_LABEL[it.recovery] || it.recovery}. ${it.where}`)))),
+    ];
+    if (it.ok === false) kids.push(h("p", { class: "notice", "data-kind": "warn" }, it.id === "pannello"
+      ? "Il pannello non ha un token: chiunque lo raggiunga può comandare Docker. Genera il token con gen-api-token.sh."
+      : "Il file della passphrase non risulta configurato (vedi docs/restic.md)."));
+    if (it.note) kids.push(h("p", { class: "hint" }, it.note));
+    if (it.command) kids.push(h("div", { class: "cmd" }, h("code", {}, it.command), h("button", { class: "btn quiet", onclick: () => copy(it.command) }, "Copia")));
+    return h("li", { class: "row" }, ...kids);
+  }
+
+  async function update() {
+    try {
+      const d = await api("/access");
+      intro.replaceChildren(
+        h("p", { class: "lead" }, "Le password non si leggono e non si cambiano da qui."),
+        h("p", { class: "hint" }, "Il recupero si fa dal terminale del server, nella cartella del progetto: così chi ruba il token del pannello non ottiene anche tutte le altre credenziali. Ogni voce mostra il comando da lanciare."),
+        h("p", { class: "hint" }, "Senza argomenti lo script elenca tutti i comandi: ", h("code", {}, d.script)));
+      list.replaceChildren(...d.items.map(item));
+    } catch (e) { intro.replaceChildren(errorBox(e)); list.replaceChildren(); }
+  }
+  return { update };
+}
+
+export const VIEWS = { servizi, backup, rete, accessi };
+export const TITLES = { servizi: "Servizi", backup: "Backup", rete: "Rete", accessi: "Accessi" };

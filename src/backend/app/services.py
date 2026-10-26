@@ -45,10 +45,18 @@ SERVICES = {
         "scheme": "http",
         "url_port": 5055,
     },
+    # Pulizia della libreria: collezioni in Jellyfin con ciò che non guardi piu' (docs/maintainerr.md)
+    "maintainerr": {
+        "name": "Maintainerr",
+        "description": "Propone cosa togliere dalla libreria (film e serie non guardati) e cancella solo dopo i giorni che scegli tu",
+        "containers": ["maintainerr"],
+        "scheme": "http",
+        "url_port": 6246,
+    },
     "download": {
         "name": "Download automatici",
-        "description": "Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr e FlareSolverr: scaricano ciò che chiedi in Seerr",
-        "containers": ["qbittorrent", "prowlarr", "radarr", "sonarr", "bazarr", "flaresolverr"],
+        "description": "Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr, FlareSolverr e Recyclarr: scaricano ciò che chiedi in Seerr",
+        "containers": ["qbittorrent", "prowlarr", "radarr", "sonarr", "bazarr", "flaresolverr", "recyclarr"],
         "scheme": "http",
         "url_port": None,  # piu' interfacce, nessun link unico: porte in docs/seerr.md e docs/bazarr.md
     },
@@ -62,8 +70,8 @@ SERVICES = {
     },
     "pihole": {
         "name": "Pi-hole",
-        "description": "Blocca pubblicità e tracker su tutta la rete",
-        "containers": ["pihole"],
+        "description": "Blocca pubblicità e tracker su tutta la rete (con Unbound come DNS ricorsivo)",
+        "containers": ["pihole", "unbound"],   # Unbound e' il DNS ricorsivo dietro Pi-hole (docs/unbound.md): senza Pi-hole non serve
         "scheme": "http",
         "url_port": 8053,
         "path": "/admin",
@@ -81,6 +89,14 @@ SERVICES = {
         "containers": ["ntfy"],
         "scheme": "http",
         "url_port": 2586,
+    },
+    # Storico delle risorse del server e dei container (docs/beszel.md): hub e agente hanno un solo interruttore
+    "beszel": {
+        "name": "Beszel",
+        "description": "Storico di CPU, RAM, dischi, rete e container del server, con grafici e avvisi",
+        "containers": ["beszel", "beszel-agent"],
+        "scheme": "http",
+        "url_port": 8090,
     },
     "portainer": {
         "name": "Portainer",

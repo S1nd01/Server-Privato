@@ -34,10 +34,10 @@ Pensato per un **Raspberry Pi** (8 GB di RAM consigliati) con un SSD esterno; fu
 | Area | Servizi | A cosa serve |
 |---|---|---|
 | **Foto** | Immich | Backup e galleria foto, con riconoscimento di volti e ricerca per contenuto. Legge la tua libreria esistente in sola lettura |
-| **Film e serie** | Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr, FlareSolverr | Streaming, richieste direttamente da Jellyfin, download automatico e sottotitoli |
+| **Film e serie** | Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, qBittorrent, Bazarr, FlareSolverr, Recyclarr, Maintainerr | Streaming, richieste direttamente da Jellyfin, download automatico, sottotitoli, profili di qualità sempre aggiornati e pulizia di ciò che non guardi più |
 | **Password** | Vaultwarden | Password manager compatibile con le app Bitwarden |
-| **Rete** | Pi-hole, Tailscale | Blocco di pubblicità e tracker per tutta la casa; accesso da fuori e proxy HTTPS unico |
-| **Controllo** | Pannello, Uptime Kuma, ntfy, Portainer | Interruttori per ogni gruppo di servizi, controllo che tutto risponda, notifiche push e gestione grafica di Docker |
+| **Rete** | Pi-hole, Unbound, Tailscale | Blocco di pubblicità e tracker per tutta la casa, con DNS ricorsivo proprio; accesso da fuori e proxy HTTPS unico |
+| **Controllo** | Pannello, Uptime Kuma, ntfy, Beszel, Portainer | Interruttori per ogni gruppo di servizi, controllo che tutto risponda, notifiche push, storico delle risorse e gestione grafica di Docker; recupero delle credenziali dalla scheda Accessi |
 | **Backup** | Restic, backup di Vaultwarden | Archivi cifrati AES-256, automatici ogni notte |
 | **Utility** | Diun, Autoheal, Unmanic | Avviso quando escono aggiornamenti, riavvio automatico di ciò che non risponde, compressione dei video in libreria |
 
@@ -53,7 +53,7 @@ flowchart LR
     ts --> media["Jellyfin · Seerr"]
     ts --> arr["Radarr · Sonarr · Prowlarr<br/>qBittorrent · Bazarr"]
     ts --> vw["Vaultwarden"]
-    ts --> ctl["Uptime Kuma · ntfy<br/>Portainer · Pi-hole"]
+    ts --> ctl["Uptime Kuma · ntfy · Beszel<br/>Portainer · Pi-hole · Maintainerr"]
     pan -->|socket Docker| dk[("Docker")]
 ```
 
@@ -65,6 +65,7 @@ flowchart LR
     S --> R["Radarr / Sonarr"]
     P[Prowlarr] --> R
     F["FlareSolverr"] -.->|indexer protetti| P
+    Y["Recyclarr"] -.->|profili di qualità| R
     R --> Q[qBittorrent]
     Q --> M[("data/media<br/>Film · Serie TV")]
     B[Bazarr] -->|sottotitoli| M
@@ -86,17 +87,21 @@ Le porte sono pubblicate solo su `127.0.0.1`: dal telefono o da un altro PC si u
 | Radarr · Sonarr · Prowlarr | Film, serie, indexer | 7878 · 8989 · 9696 | [seerr.md](docs/seerr.md) |
 | qBittorrent | Client di download | 8080 | [seerr.md](docs/seerr.md) |
 | Bazarr · FlareSolverr | Sottotitoli · sfide Cloudflare | 6767 · nessuna | [bazarr.md](docs/bazarr.md) |
+| Recyclarr | Profili di qualità di Radarr e Sonarr (TRaSH) | nessuna | [recyclarr.md](docs/recyclarr.md) |
+| Maintainerr | Pulizia della libreria, con le tue regole | 6246 | [maintainerr.md](docs/maintainerr.md) |
 | Vaultwarden | Password | Tailscale 8443 (dal server 8222, solo per emergenza) | [vaultwarden.md](docs/vaultwarden.md) |
 | Pi-hole | DNS e blocco pubblicità | 53 · web 8053 (`/admin`) | [pihole.md](docs/pihole.md) |
+| Unbound | DNS ricorsivo dietro Pi-hole | nessuna (rete interna) | [unbound.md](docs/unbound.md) |
 | Uptime Kuma | Controllo dei servizi | 3001 | [uptime-kuma.md](docs/uptime-kuma.md) |
 | ntfy | Notifiche push | 2586 | [ntfy.md](docs/ntfy.md) |
+| Beszel | Storico di CPU, RAM, dischi e container | 8090 | [beszel.md](docs/beszel.md) |
 | Portainer | Gestione di Docker | 9443 (certificato autofirmato) | [portainer.md](docs/portainer.md) |
 | Diun · Autoheal | Avvisi di aggiornamento · riavvio automatico | nessuna | [manutenzione.md](docs/manutenzione.md) |
 | Unmanic | Compressione video (di solito spento) | 8888 | [compressione.md](docs/compressione.md) |
 | Tailscale | Accesso e proxy HTTPS | nessuna | [tailscale.md](docs/tailscale.md) |
 | Restic | Backup (parte a richiesta) | nessuna | [restic.md](docs/restic.md) |
 
-23 container, più Restic quando serve. Unmanic (compressione) di solito resta spento: si accende dal pannello quando serve.
+28 container, più Restic quando serve. Unmanic (compressione) di solito resta spento: si accende dal pannello quando serve.
 
 ## Requisiti
 
@@ -139,13 +144,15 @@ Non serve toccare il `.env`: lo crea `start.sh` tramite `sync-env.sh`, insieme a
    - **Bazarr:** autenticazione ([guida](docs/bazarr.md));
    - **Uptime Kuma e Portainer:** il primo amministratore, subito dopo l'avvio ([Kuma](docs/uptime-kuma.md), [Portainer](docs/portainer.md));
    - **ntfy:** il tuo utente ([guida](docs/ntfy.md));
-   - **Diun:** l'utente ntfy per le notifiche degli aggiornamenti ([guida](docs/manutenzione.md)).
+   - **Diun:** l'utente ntfy per le notifiche degli aggiornamenti ([guida](docs/manutenzione.md));
+   - **Beszel:** il primo amministratore e il sistema `/beszel_socket/beszel.sock` ([guida](docs/beszel.md));
+   - **Recyclarr, Maintainerr, Unbound:** una sincronizzazione di prova, il collegamento a Jellyfin, Radarr e Sonarr, e `./src/scripts/pihole-unbound.sh on` ([Recyclarr](docs/recyclarr.md), [Maintainerr](docs/maintainerr.md), [Unbound](docs/unbound.md)).
 
 Avvio parziale: `docker compose up -d --build frontend backend vaultwarden`.
 
 ## Accesso da telefono e PC
 
-Tailscale crea una rete privata tra i tuoi dispositivi e pubblica i servizi in HTTPS, senza aprire porte sul router e anche dietro CGNAT. Le porte pubblicate sono 14 e le elenca `tailscale/serve.json`.
+Tailscale crea una rete privata tra i tuoi dispositivi e pubblica i servizi in HTTPS, senza aprire porte sul router e anche dietro CGNAT. Le porte pubblicate sono 16 e le elenca `tailscale/serve.json`.
 
 1. Installa l'app Tailscale e accedi con lo stesso account.
 2. Apri `https://<nome>.<rete>.ts.net` per il pannello, oppure aggiungi la porta del servizio, per esempio `:8096` per Jellyfin.
@@ -155,11 +162,12 @@ Per un dispositivo senza Tailscale, come una TV con Jellyfin, serve `BIND_ADDR=0
 
 ## Il pannello
 
-Una PWA a tre sezioni, in HTML e JavaScript senza librerie.
+Una PWA a quattro sezioni, in HTML e JavaScript senza librerie.
 
 - **Servizi:** in alto i pulsanti delle **modalità** (Risparmio e Normale, [guida](docs/risparmio.md)); poi una scheda per gruppo con stato, CPU, RAM, tempo di attività, salute e riavvii; interruttori di avvio, arresto e riavvio; link "Apri". Mostra anche CPU, carico, RAM, dischi, temperatura e uptime del server.
 - **Backup:** prepara l'archivio, avvia il backup, pulisce le copie vecchie, controlla l'archivio e mostra log e copie esistenti.
 - **Rete:** stato di Tailscale, indirizzo HTTPS, dispositivi collegati e installazione dell'app.
+- **Accessi:** dove stanno le credenziali di ogni servizio e il comando per recuperarle. Il pannello non mostra e non reimposta nessuna password: il recupero si fa dal terminale del server con `./src/scripts/recupera-credenziali.sh` ([guida](docs/credenziali.md)).
 
 Il blocco **Utility** raccoglie le schede di servizio al server: **Manutenzione** (Diun e Autoheal, sempre accesi) e **Compressione video** (Unmanic, acceso solo quando serve). Un servizio entra nel blocco con `"group": "utility"` in `src/backend/app/services.py`.
 
@@ -174,19 +182,19 @@ data/
 ├── immich/         upload · postgres · model-cache
 ├── vaultwarden/    pihole/    jellyfin/    seerr/    radarr/    sonarr/
 ├── prowlarr/       qbittorrent/    bazarr/    kuma/    ntfy/    portainer/
-├── unmanic/        diun/
+├── unmanic/        diun/    recyclarr/    maintainerr/    beszel/
 ├── tailscale/      panel/
 └── backups/        restic · vaultwarden
 ```
 
-**Restic** salva in un archivio cifrato (AES-256, deduplicato) Vaultwarden, foto e dump di Immich, Pi-hole e le configurazioni di Jellyfin, Seerr, Radarr, Sonarr, Prowlarr e qBittorrent. Parte ogni notte alle 03:30 e poi pulisce, tenendo 7 copie giornaliere, 4 settimanali e 6 mensili. Film e download non sono inclusi. Dettagli e ripristino: [restic.md](docs/restic.md).
+**Restic** salva in un archivio cifrato (AES-256, deduplicato) Vaultwarden, foto e dump di Immich, Pi-hole e le configurazioni di Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, qBittorrent, Recyclarr e Maintainerr. Parte ogni notte alle 03:30 e poi pulisce, tenendo 7 copie giornaliere, 4 settimanali e 6 mensili. Film e download non sono inclusi. Dettagli e ripristino: [restic.md](docs/restic.md).
 
 **Backup di Vaultwarden:** archivio cifrato con GnuPG, notturno alle 03:00 se lo attivi, ultime 14 copie.
 
 Attenzione:
 - la passphrase si copia **fuori dal server**, senza i backup non si aprono;
 - la copia è solo locale: una copia fuori casa non è ancora collegata;
-- Bazarr, Uptime Kuma, ntfy, Portainer, Unmanic e Diun non sono ancora tra le fonti di Restic.
+- Bazarr, Uptime Kuma, ntfy, Portainer, Beszel, Unmanic e Diun non sono ancora tra le fonti di Restic.
 
 ## Sicurezza
 
@@ -197,7 +205,8 @@ Obiettivo realistico: un server in casa, raggiungibile da fuori **solo** via Tai
 - **Token del pannello:** 256 bit casuali, nel `.env` c'è solo l'hash SHA-256. Letto solo dall'header, confronto a tempo costante, blocco dopo 10 errori al minuto.
 - **Pannello web:** CSP rigida, niente script o stili inline, `X-Frame-Options: DENY`.
 - **Pannelli pubblicati da Tailscale:** Radarr, Sonarr e Prowlarr vedono le richieste come locali, quindi l'autenticazione obbligatoria va impostata in ciascuno. ntfy è in `deny-all`.
-- **Unmanic** non ha nessuna autenticazione: la porta è su `127.0.0.1` e da fuori si arriva solo da Tailscale. Non aprirla in LAN.
+- **Unmanic** non ha nessuna autenticazione (e Maintainerr, di serie, nemmeno): le porte sono su `127.0.0.1` e da fuori si arriva solo da Tailscale. Non aprirle in LAN.
+- **Credenziali dimenticate:** il recupero passa solo dal terminale del server (`recupera-credenziali.sh`), mai dal pannello web ([guida](docs/credenziali.md)).
 - **Cifratura:** vault AES-256 lato client, backup AES-256, traffico WireGuard più HTTPS.
 - **Pi-hole:** nel `.env.example` il DNS ascolta su un IP della LAN e la pagina web su `0.0.0.0`. È l'unica eccezione al "tutto locale": controlla che sia voluta.
 
@@ -219,7 +228,9 @@ Il `.env` lo gestisce `sync-env.sh`. Le variabili che può avere senso cambiare:
 | Variabile | Significato |
 |---|---|
 | `BIND_ADDR` | Dove pubblicare le porte: `127.0.0.1` (solo dal server, consigliato) o `0.0.0.0` (anche la rete di casa) |
-| `TS_HOSTNAME`, `TS_AUTHKEY` | Nome del server in Tailscale e chiave per il primo accesso |
+| `TS_HOSTNAME`, `TS_AUTHKEY`, `TS_ROUTES` | Nome del server in Tailscale, chiave per il primo accesso, IP da pubblicare per usare Pi-hole fuori casa |
+| `RECYCLARR_SCHEDULE`, `RADARR_API_KEY`, `SONARR_API_KEY` | Orario di Recyclarr e chiavi API (le scrive `post-avvio.sh`) |
+| `BESZEL_KEY`, `BESZEL_APP_URL` | Chiave pubblica del hub per l'agente (la scrive `post-avvio.sh`) e indirizzo `.ts.net` del hub |
 | `API_TOKEN_HASH` | Hash del token del pannello (lo scrive `gen-api-token.sh`) |
 | `IMMICH_DB_PASSWORD` | Password del database di Immich: scegli lettere e numeri **prima** del primo avvio |
 | `VW_DOMAIN`, `VW_SIGNUPS`, `ADMIN_TOKEN` | Indirizzo `.ts.net` di Vaultwarden, registrazioni aperte o chiuse, pannello `/admin` |
@@ -241,6 +252,9 @@ docker compose exec tailscale tailscale serve status    # cosa pubblica Tailscal
 docker compose exec ntfy ntfy user add --role=admin IL_TUO_NOME      # utente di ntfy
 docker compose --profile tools run --rm restic -r /repo snapshots    # copie di Restic
 ./src/scripts/backup-vaultwarden.sh            # backup cifrato di Vaultwarden, a mano
+./src/scripts/recupera-credenziali.sh          # password dimenticata: elenco dei comandi di recupero
+./src/scripts/pihole-unbound.sh stato          # Pi-hole usa Unbound? (on / off per cambiare)
+./src/scripts/post-avvio.sh                    # chiavi di Radarr/Sonarr per Recyclarr e chiave del hub Beszel
 ```
 
 ## Aggiornare
@@ -261,12 +275,13 @@ Il backend è FastAPI; se `API_TOKEN_HASH` è impostato ogni chiamata, tranne `h
 | Metodo | Path | Descrizione |
 |---|---|---|
 | GET | `/api/health` | stato del backend, sempre senza token |
-| GET | `/api/services` · `/api/services/{id}` | stato dei gruppi di servizi (`immich`, `immich-ml`, `jellyfin`, `seerr`, `download`, `vaultwarden`, `pihole`, `uptime-kuma`, `ntfy`, `portainer`, `manutenzione`, `compressione`, `tailscale`) |
+| GET | `/api/services` · `/api/services/{id}` | stato dei gruppi di servizi (`immich`, `immich-ml`, `jellyfin`, `seerr`, `maintainerr`, `download`, `vaultwarden`, `pihole`, `uptime-kuma`, `ntfy`, `beszel`, `portainer`, `manutenzione`, `compressione`, `tailscale`) |
 | POST | `/api/services/{id}/start` · `stop` · `restart` | azione su un gruppo |
 | GET | `/api/modes` | le modalità del pannello (Risparmio, Normale) |
 | POST | `/api/modes/{id}/apply` | applica una modalità: accende o spegne in blocco i suoi gruppi |
 | GET | `/api/stats` | server (CPU, RAM, dischi, temperatura) e per servizio (CPU, RAM, uptime, salute, riavvii); segnala cartelle mancanti |
 | GET | `/api/tailscale/status` | stato Tailscale, indirizzo HTTPS, dispositivi |
+| GET | `/api/access` | elenco delle credenziali e comandi di recupero (nessun valore segreto) |
 | GET/POST | `/api/backup/status` · `/api/backup/jobs` · `/api/backup/snapshots` | backup Restic |
 
 ## Struttura del progetto
@@ -278,10 +293,12 @@ Server-Privato/
 ├── .env.example          modello del .env (lo crea sync-env.sh)
 ├── setup-windows.bat     installazione automatica su Windows
 ├── src/
-│   ├── backend/          FastAPI: servizi Docker, statistiche, backup Restic, stato Tailscale
+│   ├── backend/          FastAPI: servizi Docker, statistiche, backup Restic, stato Tailscale, elenco accessi
 │   ├── frontend/         PWA statica (HTML, CSS, JavaScript)
-│   └── scripts/          start.sh · sync-env.sh · gen-api-token.sh · backup-vaultwarden.sh · install-linux.sh
+│   └── scripts/          start.sh · sync-env.sh · post-avvio.sh · gen-api-token.sh · recupera-credenziali.sh · pihole-unbound.sh · backup-vaultwarden.sh · install-linux.sh
 ├── nginx/                serve il pannello (CSP e header di sicurezza)
+├── unbound/              unbound.conf: DNS ricorsivo dietro Pi-hole
+├── recyclarr/            recyclarr.yml: modello dei profili di qualità (la copia in uso sta in data/)
 ├── tailscale/            serve.json: i servizi pubblicati in HTTPS
 ├── docs/                 una guida per servizio
 └── data/                 dati persistenti (creata all'avvio, non nel repository)
@@ -292,13 +309,13 @@ Server-Privato/
 | Argomento | Guida |
 |---|---|
 | Foto | [immich.md](docs/immich.md) |
-| Film, serie e musica | [jellyfin.md](docs/jellyfin.md) · [seerr.md](docs/seerr.md) · [bazarr.md](docs/bazarr.md) |
+| Film, serie e musica | [jellyfin.md](docs/jellyfin.md) · [seerr.md](docs/seerr.md) · [bazarr.md](docs/bazarr.md) · [recyclarr.md](docs/recyclarr.md) · [maintainerr.md](docs/maintainerr.md) |
 | Password | [vaultwarden.md](docs/vaultwarden.md) |
-| Rete e accesso | [tailscale.md](docs/tailscale.md) · [pihole.md](docs/pihole.md) |
-| Controllo e notifiche | [uptime-kuma.md](docs/uptime-kuma.md) · [ntfy.md](docs/ntfy.md) · [portainer.md](docs/portainer.md) |
+| Rete e accesso | [tailscale.md](docs/tailscale.md) · [pihole.md](docs/pihole.md) · [unbound.md](docs/unbound.md) |
+| Controllo e notifiche | [uptime-kuma.md](docs/uptime-kuma.md) · [ntfy.md](docs/ntfy.md) · [beszel.md](docs/beszel.md) · [portainer.md](docs/portainer.md) |
 | Utility | [manutenzione.md](docs/manutenzione.md) · [compressione.md](docs/compressione.md) · [risparmio.md](docs/risparmio.md) |
 | Backup | [restic.md](docs/restic.md) |
-| Sicurezza | [security.md](docs/security.md) |
+| Sicurezza e credenziali | [security.md](docs/security.md) · [credenziali.md](docs/credenziali.md) |
 | Risorse | [ottimizzazione.md](docs/ottimizzazione.md) |
 | Pannello sul telefono | [pwa.md](docs/pwa.md) |
 | Windows e SSD esterno | [windows.md](docs/windows.md) |
@@ -306,7 +323,7 @@ Server-Privato/
 ## Da decidere
 
 - Aggiungere ai backup Bazarr, Uptime Kuma, ntfy, Portainer e Unmanic.
-- Altre utility da valutare: Filebrowser, Unbound, CrowdSec, Beszel e Watchtower (Diun avvisa soltanto; Watchtower aggiornerebbe da solo).
+- Altre utility da valutare: Filebrowser, CrowdSec e Watchtower (Diun avvisa soltanto; Watchtower aggiornerebbe da solo).
 - Spegnimento programmato e limiti di RAM calibrati sull'uso reale.
-- Navidrome per la musica e Maintainerr per la pulizia della libreria (solo con conferma manuale).
+- Navidrome per la musica.
 - Una copia dei backup fuori casa.

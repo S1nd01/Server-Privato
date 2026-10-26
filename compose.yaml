@@ -70,6 +70,7 @@ services:
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "true"    # niente /dev/net/tun ne' privilegi: funziona anche nella WSL
       TS_SERVE_CONFIG: /config/serve.json
+      TS_ROUTES: ${TS_ROUTES:-}   # IP del server per Pi-hole fuori casa (docs/setup-pihole.md)
     volumes:
       - ${DATA_DIR}/tailscale:/var/lib/tailscale
       - ./tailscale/serve.json:/config/serve.json:ro
@@ -168,6 +169,31 @@ services:
       - "${BIND_ADDR:-127.0.0.1}:5055:5055"
     depends_on:
       - jellyfin
+    restart: unless-stopped
+
+  # Pulizia della libreria: crea in Jellyfin delle collezioni con i film e le serie che non guardi piu' e, passati i giorni
+  # che scegli, li toglie da Radarr/Sonarr. Cancella solo quello che decidi tu nelle regole (docs/maintainerr.md).
+  maintainerr:
+    image: maintainerr/maintainerr:latest
+    container_name: maintainerr
+    logging: *logging
+    user: "${PUID:-1000}:${PGID:-1000}"
+    cpu_shares: 256
+    mem_limit: 512m
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/maintainerr:/opt/data
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:6246:6246"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6246 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - autoheal=true
     restart: unless-stopped
 
   qbittorrent:
@@ -283,6 +309,28 @@ services:
       - sonarr
     restart: unless-stopped
 
+  # Sincronizza in Radarr e Sonarr i profili di qualita' e i punteggi delle guide TRaSH (docs/recyclarr.md).
+  # Una volta al giorno (RECYCLARR_SCHEDULE), il resto del tempo e' fermo. Fa parte del gruppo "Download automatici".
+  # Le chiavi API le scrive nel .env src/scripts/post-avvio.sh (non esistono prima del primo avvio di Radarr e Sonarr).
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:8
+    container_name: recyclarr
+    logging: *logging
+    user: "${PUID:-1000}:${PGID:-1000}"
+    cpu_shares: 256
+    mem_limit: 256m
+    environment:
+      TZ: ${TZ}
+      CRON_SCHEDULE: ${RECYCLARR_SCHEDULE:-@daily}
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+    volumes:
+      - ${DATA_DIR}/recyclarr/config:/config
+    depends_on:
+      - radarr
+      - sonarr
+    restart: unless-stopped
+
   # Browser headless che Prowlarr usa per gli indexer protetti da Cloudflare. Nessuna porta pubblicata: lo chiama solo Prowlarr
   # (http://flaresolverr:8191). Quando risolve una sfida usa parecchia RAM: se la memoria finisce e' il primo a essere fermato (oom_score_adj).
   flaresolverr:
@@ -335,8 +383,27 @@ services:
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/tcp"
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/udp"
       - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
+    networks:
+      - default
+      - dns      # per parlare con Unbound (docs/unbound.md)
     labels:
       - autoheal=true
+    restart: unless-stopped
+
+  # DNS ricorsivo: Pi-hole filtra, Unbound risolve senza passare da Google o Cloudflare (docs/unbound.md).
+  # Parte spento "di fatto": Pi-hole continua a usare il suo upstream finche' non lanci ./src/scripts/pihole-unbound.sh on.
+  # Sta su una rete privata solo sua e di Pi-hole (indirizzo fisso) e non pubblica nessuna porta.
+  unbound:
+    image: alpinelinux/unbound:latest
+    container_name: unbound
+    logging: *logging
+    cpu_shares: 256
+    mem_limit: 128m
+    volumes:
+      - ./unbound/unbound.conf:/etc/unbound/unbound.conf:ro
+    networks:
+      dns:
+        ipv4_address: 10.89.53.2
     restart: unless-stopped
 
   # ---------- Portainer: gestione grafica di Docker ----------
@@ -387,6 +454,46 @@ services:
       - ${DATA_DIR}/ntfy:/var/lib/ntfy
     ports:
       - "${BIND_ADDR:-127.0.0.1}:2586:80"
+    restart: unless-stopped
+
+  # ---------- Monitoraggio delle risorse (docs/beszel.md) ----------
+  # Storico di CPU, RAM, dischi, rete, temperatura e container. L'agente parla con il hub tramite un socket condiviso
+  # (nessuna porta in piu'). Il primo utente amministratore si crea nel hub, subito dopo l'avvio.
+  # L'agente ha bisogno della chiave pubblica del hub (BESZEL_KEY): la scrive src/scripts/post-avvio.sh.
+  beszel:
+    image: henrygd/beszel:latest
+    container_name: beszel
+    logging: *logging
+    cpu_shares: 256
+    mem_limit: 256m
+    environment:
+      TZ: ${TZ}
+      APP_URL: ${BESZEL_APP_URL:-http://localhost:8090}
+    volumes:
+      - ${DATA_DIR}/beszel/data:/beszel_data
+      - ${DATA_DIR}/beszel/socket:/beszel_socket
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8090:8090"
+    restart: unless-stopped
+
+  # Rete "host" per misurare le schede di rete vere del computer. Il socket Docker e' in sola lettura: serve a contare
+  # i container, ma chi lo controlla puo' leggere le variabili d'ambiente di tutti (come Diun).
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    container_name: beszel-agent
+    logging: *logging
+    network_mode: host
+    cpu_shares: 256
+    mem_limit: 128m
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      KEY: ${BESZEL_KEY:-}
+    volumes:
+      - ${DATA_DIR}/beszel/agent:/var/lib/beszel-agent
+      - ${DATA_DIR}/beszel/socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - beszel
     restart: unless-stopped
 
   # ---------- Utility: manutenzione (docs/manutenzione.md) ----------
@@ -481,3 +588,13 @@ services:
       - ${DATA_DIR}/backups/restic:/repo
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/run/restic-pass:ro
       - ${DATA_DIR}/restore:/restore
+
+# Rete privata tra Pi-hole e Unbound (indirizzo fisso: Pi-hole accetta come upstream solo un IP).
+# Se 10.89.53.0/28 coincide con una rete tua, cambia i tre indirizzi qui, in unbound/unbound.conf e in src/scripts/pihole-unbound.sh.
+networks:
+  dns:
+    name: homeserver_dns
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.89.53.0/28

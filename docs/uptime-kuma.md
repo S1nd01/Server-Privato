@@ -39,8 +39,11 @@ Nei campi usa sempre i nomi Docker, mai `localhost`. Tipo *HTTP(s)*, intervallo 
 | Pi-hole (web) | `http://pihole:80/admin/` |
 | ntfy | `http://ntfy:80/v1/health` |
 | Portainer | `https://portainer:9443/api/system/status` con *Ignora errori TLS/SSL* attivo |
+| Maintainerr | `http://maintainerr:6246/` |
+| Beszel | `http://beszel:8090/api/health` |
 
 Per Pi-hole aggiungi anche un controllo **DNS**: risolutore `pihole`, porta `53`, nome `example.com`. Così sai se risponde alle richieste, non solo se la pagina è su.
+Se usi [Unbound](unbound.md), un secondo controllo **DNS**: risolutore `unbound`, porta `5335`, nome `example.com` (se si ferma, la rete di casa non risolve più i nomi).
 
 ## Quando spegni dei servizi dal pannello
 

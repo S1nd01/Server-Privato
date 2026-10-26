@@ -65,6 +65,7 @@ Agisce **solo** sui container con l'etichetta `autoheal=true`. Sono quelli che h
 |---|---|
 | Radarr, Sonarr, Prowlarr | definito in `compose.yaml` (`/ping` ogni minuto) |
 | Jellyfin, Immich (server), Vaultwarden, Pi-hole, Uptime Kuma | già nell'immagine |
+| Maintainerr | definito in `compose.yaml` (porta 6246 raggiungibile) |
 
 Gli altri (qBittorrent, Bazarr, FlareSolverr, Seerr, Portainer, Tailscale, ntfy, Unmanic…) non hanno etichetta: se un controllo di salute sbagliato li facesse riavviare in continuazione, non te ne accorgeresti.
 La scelta è volutamente prudente.

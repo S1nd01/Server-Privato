@@ -6,7 +6,7 @@ import anyio.to_thread
 from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import backup, stats, tailscale
+from . import access, backup, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import MODES, SERVICES
@@ -24,10 +24,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Homeserver API",
-    version="0.4.0",
+    version="0.5.0",
     dependencies=[Depends(require_token)],
     lifespan=lifespan,
 )
+app.include_router(access.router)
 app.include_router(tailscale.router)
 app.include_router(backup.router)
 

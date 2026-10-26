@@ -14,7 +14,9 @@
     "6767": { "HTTPS": true },
     "3001": { "HTTPS": true },
     "2586": { "HTTPS": true },
-    "8888": { "HTTPS": true }
+    "8888": { "HTTPS": true },
+    "8090": { "HTTPS": true },
+    "6246": { "HTTPS": true }
   },
   "Web": {
     "${TS_CERT_DOMAIN}:443":  { "Handlers": { "/": { "Proxy": "http://hs_frontend:80" } } },
@@ -31,6 +33,8 @@
     "${TS_CERT_DOMAIN}:6767": { "Handlers": { "/": { "Proxy": "http://bazarr:6767" } } },
     "${TS_CERT_DOMAIN}:3001": { "Handlers": { "/": { "Proxy": "http://uptime-kuma:3001" } } },
     "${TS_CERT_DOMAIN}:2586": { "Handlers": { "/": { "Proxy": "http://ntfy:80" } } },
-    "${TS_CERT_DOMAIN}:8888": { "Handlers": { "/": { "Proxy": "http://unmanic:8888" } } }
+    "${TS_CERT_DOMAIN}:8888": { "Handlers": { "/": { "Proxy": "http://unmanic:8888" } } },
+    "${TS_CERT_DOMAIN}:8090": { "Handlers": { "/": { "Proxy": "http://beszel:8090" } } },
+    "${TS_CERT_DOMAIN}:6246": { "Handlers": { "/": { "Proxy": "http://maintainerr:6246" } } }
   }
 }
