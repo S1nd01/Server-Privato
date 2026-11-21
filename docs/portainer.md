@@ -12,7 +12,8 @@ I dati stanno in `data/portainer`, dentro la cartella unica del progetto.
 
 ## Primo avvio
 
-1. `docker compose up -d portainer`
+1. `docker compose --profile admin-tools up -d portainer`. Portainer **non parte** con un normale `docker compose up -d`: lo accendi quando serve
+   (anche dall'interruttore del pannello, una volta creato) e lo ferma `docker compose stop portainer`.
 2. Entro **5 minuti** apri l'indirizzo e crea l'utente amministratore (password lunga). Oltre il limite Portainer si blocca per
    sicurezza: `docker compose restart portainer` e riprova.
 3. Scegli l'ambiente *Get Started* (Docker locale).
@@ -21,7 +22,8 @@ I dati stanno in `data/portainer`, dentro la cartella unica del progetto.
 
 Portainer monta `/var/run/docker.sock`, come il backend del pannello: chi entra controlla la macchina. Per questo:
 
-- la porta `9443` è pubblicata **solo su `127.0.0.1`** e non segue `BIND_ADDR`: non aprirla mai in LAN né sul router;
+- la porta `9443` è pubblicata **solo su `127.0.0.1`** e non segue nessuna variabile di indirizzo: non aprirla mai in LAN né sul router;
+- sta nel profilo `admin-tools`: spento di serie, perché duplica in parte il pannello e ha il socket Docker per intero;
 - da fuori si passa solo da Tailscale;
 - l'amministratore deve avere una password lunga e unica.
 
@@ -33,7 +35,7 @@ Prima i dati finivano in `homeserver-data/portainer`. Per tenere l'utente e le i
 docker compose stop portainer
 mkdir -p data/portainer
 cp -a homeserver-data/portainer/. data/portainer/
-docker compose up -d portainer
+docker compose --profile admin-tools up -d portainer
 ```
 
 Poi, a prova fatta, cancella `homeserver-data`.

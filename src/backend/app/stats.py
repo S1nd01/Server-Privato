@@ -265,6 +265,8 @@ EXPECTED_DIRS = [
     "diun",
     "kuma",
     "ntfy",
+    "telegram",
+    "telegram/state",
     "photos",
     "panel",
     "pihole",

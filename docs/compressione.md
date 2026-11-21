@@ -8,7 +8,7 @@ con un interruttore a parte: **tienilo spento finché non serve**, perché la co
 | Dal server | http://localhost:8888 |
 | Da Tailscale | `https://<nome>.ts.net:8888` |
 
-Unmanic **non ha autenticazione**: per questo la porta è su `127.0.0.1` e da fuori si passa solo da Tailscale (la tua rete personale). Non aprirla in LAN con `BIND_ADDR=0.0.0.0` senza proteggerla.
+Unmanic **non ha autenticazione**: per questo la porta è su `127.0.0.1` e da fuori si passa solo da Tailscale (la tua rete personale). Sta sempre su `127.0.0.1` (`LAN_BIND_ADDR` non la riguarda): non aprirla in LAN senza proteggerla.
 
 ## Prima di cominciare: ha senso sul tuo server?
 

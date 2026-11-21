@@ -15,13 +15,13 @@ ntfy è in `deny-all` (vedi [ntfy.md](ntfy.md)): Diun ha bisogno di un utente co
 ```bash
 docker compose exec ntfy ntfy user add servizi                          # se non esiste ancora
 docker compose exec ntfy ntfy access servizi homeserver write-only      # l'argomento che già segui sul telefono
+docker compose exec ntfy ntfy token add servizi                         # stampa un token che inizia per tk_
 ```
 
-Nel `.env`:
+Diun non accetta utente e password per ntfy, solo il token. Nel `.env`:
 
 ```
-DIUN_NTFY_USER=servizi
-DIUN_NTFY_PASSWORD=la-password-di-servizi
+DIUN_NTFY_TOKEN=tk_il-token-stampato-sopra
 ```
 
 Poi `docker compose up -d diun` e prova che la notifica arrivi sul telefono:
@@ -66,6 +66,7 @@ Agisce **solo** sui container con l'etichetta `autoheal=true`. Sono quelli che h
 | Radarr, Sonarr, Prowlarr | definito in `compose.yaml` (`/ping` ogni minuto) |
 | Jellyfin, Immich (server), Vaultwarden, Pi-hole, Uptime Kuma | già nell'immagine |
 | Maintainerr | definito in `compose.yaml` (porta 6246 raggiungibile) |
+| Pannello (frontend e backend) | definito in `compose.yaml` (pagina iniziale e `/api/health` ogni 30 secondi) |
 
 Gli altri (qBittorrent, Bazarr, FlareSolverr, Seerr, Portainer, Tailscale, ntfy, Unmanic…) non hanno etichetta: se un controllo di salute sbagliato li facesse riavviare in continuazione, non te ne accorgeresti.
 La scelta è volutamente prudente.
@@ -112,4 +113,19 @@ Con la CPU al massimo un servizio può rispondere troppo piano al controllo e ri
 
 ## Risorse
 
-Diun 128 MB al massimo, Autoheal 64 MB; entrambi con priorità CPU bassa. Montano il socket Docker (Diun in sola lettura, Autoheal in scrittura, come il backend del pannello e Portainer).
+Diun 128 MB al massimo, Autoheal 64 MB e i due proxy del socket 64 MB ciascuno; tutti con priorità CPU bassa.
+
+Diun e Autoheal **non montano il socket Docker**: Diun passa da `docker-proxy-ro` (solo lettura di container e immagini), Autoheal da `docker-proxy-rw`
+(elenco e riavvio dei container). I proxy fanno parte dello stesso interruttore "Manutenzione" del pannello. Dettagli e limiti in [security.md](security.md).
+
+## Versioni fissate
+
+Di serie le immagini seguono `latest`: un aggiornamento può migrare il database di Vaultwarden, Jellyfin, Radarr e degli altri in modo che non si annulla.
+`./src/scripts/pin-images.sh` mostra le versioni **in uso adesso** e, con `--apply`, le scrive nel `.env` (`VAULTWARDEN_IMAGE`, `RADARR_IMAGE`, `IMMICH_VERSION`...).
+Usa un tag di versione quando esiste ed è verificato nel registro, altrimenti il digest dell'immagine.
+
+- Per aggiornare un servizio: cambia il valore nel `.env`, poi `docker compose pull <servizio> && docker compose up -d <servizio>`. Fallo uno alla volta e tieni un backup recente.
+- Per tornare a `latest`: togli la riga dal `.env`.
+- **Diun e le versioni fissate:** con un tag fisso o un digest Diun controlla solo quello e non ti avvisa più che ne esiste uno nuovo. Per riavere gli avvisi
+  su un servizio fissato servono le etichette `diun.watch_repo` e `diun.include_tags` sul servizio in `compose.yaml` (nomi e sintassi nella documentazione di Diun: non sono
+  ancora impostate qui).

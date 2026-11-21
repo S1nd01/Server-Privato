@@ -352,12 +352,13 @@ export function backup(root, ctx) {
       return [
         h("p", { class: "lead" }, "Il backup non è ancora attivo."),
         h("ul", { class: "bullets" }, st.problems.map((p) => h("li", {}, p))),
-        h("p", { class: "hint" }, "Si attiva compilando RESTIC_REPO_DIR e RESTIC_PASSWORD_FILE nel file .env (istruzioni in docs/restic.md), poi `docker compose up -d --build`."),
+        h("p", { class: "hint" }, "Si attiva compilando RESTIC_REPO_DIR e RESTIC_PASSWORD_FILE nel file .env (istruzioni in docs/restic.md), poi `docker compose up -d --build`. Per l'archivio su un disco esterno: ./src/scripts/backup-disco.sh."),
       ];
     }
     const running = st.job && st.job.result === "running";
+    const diskGone = !!(st.disk && !st.disk.present);
     const mk = (label, kind, cls = "btn") => h("button", { class: cls, disabled: running, onclick: (e) => start(e.currentTarget, kind) }, label);
-    const actions = !st.initialized
+    const actions = diskGone ? [] : !st.initialized
       ? [mk("Prepara l'archivio", "init", "btn primary")]
       : [mk("Esegui backup ora", "backup", "btn primary"), mk("Controlla integrità", "check"),
          confirming
@@ -366,15 +367,18 @@ export function backup(root, ctx) {
            : h("button", { class: "btn", disabled: running, onclick: () => { confirming = true; update(); } }, "Pulisci vecchie copie")];
     return [
       h("dl", { class: "facts" },
-        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.initialized ? (st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : "ancora nessuna") : "archivio da preparare")),
-        h("div", {}, h("dt", {}, "Automatico"), h("dd", {}, st.schedule ? `ogni giorno alle ${st.schedule}` : "disattivato")),
-        h("div", {}, h("dt", {}, "Dove"), h("dd", {}, st.repo || "")),
+        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : st.initialized === false ? "archivio da preparare" : "ancora nessuna")),
+        h("div", {}, h("dt", {}, "Quando parte"), h("dd", {}, "solo quando lo avvii tu, da qui")),
+        h("div", {}, h("dt", {}, "Dove"), h("dd", {}, (st.repo || "") + (st.disk ? (st.disk.present ? " (disco collegato)" : " (disco NON collegato)") : ""))),
         h("div", {}, h("dt", {}, "Cosa si salva"), h("dd", {}, st.sources.map((s) => s.path + (s.exists ? "" : " (non trovata)")).join(", ")))),
+      ...(diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, `Il disco di backup non è collegato (lo cerco in ${st.disk.path}). Collegalo e montalo per fare un backup o vedere le copie salvate.`)] : []),
+      ...(st.stale && !diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, st.last_backup_at ? `L'ultima copia risale a ${st.age_days} giorni fa: è ora di farne una.` : "Non c'è ancora nessuna copia: fai il primo backup.")] : []),
+      ...(st.stale && diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, st.last_backup_at ? `L'ultima copia risale a ${st.age_days} giorni fa: collega il disco e fanne una.` : "Non c'è ancora nessuna copia.")] : []),
       h("div", { class: "actions wrap" }, actions),
     ];
   }
 
-  function renderJob(job) {
+  function renderJob(job, st) {
     if (!job) { jobBox.hidden = true; return; }
     jobBox.hidden = false;
     const state = job.result === "running" ? "partial" : job.result === "failed" ? "failed" : "running";
@@ -384,6 +388,8 @@ export function backup(root, ctx) {
       h("div", { class: "line" },
         h("div", { class: "rowmain static" }, led(state), h("span", { class: "text" }, h("strong", {}, JOB_LABEL[job.kind] || "Operazione"), h("small", {}, `${RESULT_LABEL[job.result] || job.result}${job.finished_at && job.result !== "running" ? ", " + ago(job.finished_at) : ""}`))),
         h("button", { class: "btn quiet", onclick: () => { showLogs = !showLogs; update(); } }, showLogs ? "Nascondi log" : "Log")),
+      ...(st && st.disk && job.kind === "backup" && (job.result === "ok" || job.result === "warning")
+        ? [h("p", { class: "hint" }, "Finito: ora puoi scollegare il disco. Espellilo prima dal sistema, poi tienilo spento o altrove.")] : []),
       pre);
   }
 
@@ -406,7 +412,7 @@ export function backup(root, ctx) {
       const st = await api("/backup/status");
       statusBox.replaceChildren(...renderStatus(st));
       const key = st.job ? `${st.job.kind}|${st.job.result}|${st.job.finished_at}` : "";
-      renderJob(st.job);
+      renderJob(st.job, st);
       if (key !== lastJobKey || snapSection.hidden) { lastJobKey = key; await loadSnapshots(st); }
     } catch (e) { statusBox.replaceChildren(errorBox(e)); }
   }

@@ -1,0 +1,25 @@
+# OPZIONALE E NON PROVATO: Tailscale in modalita' kernel (docs/raspberry.md).
+#
+# Di serie Tailscale gira in modalita' "userspace": funziona ovunque (anche in WSL) ma ogni pacchetto passa da un processo,
+# e su un Raspberry questo limita la velocita' dello streaming da fuori casa. Qui il traffico passa dall'interfaccia tailscale0
+# del kernel.
+#
+# Si attiva aggiungendo al .env:
+#   COMPOSE_FILE=compose.yaml:compose.override.yml:compose.tailscale-kernel.yml
+# poi: docker compose up -d tailscale
+# Si disattiva togliendo quella riga (e di nuovo `docker compose up -d tailscale`).
+#
+# Requisiti: /dev/net/tun sul computer (manca in WSL; sul Raspberry c'e'). Se usi TS_ROUTES per Pi-hole fuori casa, dopo il
+# cambio controlla che il DNS da fuori casa funzioni ancora (docs/setup-pihole.md): con la modalita' kernel l'inoltro dei
+# pacchetti verso il computer passa dalla rete Docker e non l'ho potuto verificare.
+services:
+  tailscale:
+    environment:
+      TS_USERSPACE: "false"
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    sysctls:
+      - net.ipv4.ip_forward=1   # serve solo con TS_ROUTES (annunciare l'indirizzo del server per Pi-hole)

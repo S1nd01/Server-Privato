@@ -46,6 +46,16 @@ def _client_key(request: Request) -> str:
     return request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
 
 
+def require_admin(request: Request) -> None:
+    """Segna le azioni riservate all'admin (oggi: tutto il backup che scrive).
+
+    Per ora esiste un solo livello di accesso, il token, e chi lo ha e' admin: qui non c'e' nulla da verificare in piu' e la
+    funzione non fa niente. Quando arriveranno i ruoli (admin / sola lettura) diventa il controllo vero, e le rotte che
+    la dichiarano sono gia' quelle giuste: check-config.py impone che ogni rotta di scrittura del backup la dichiari.
+    """
+    return None
+
+
 def require_token(request: Request) -> None:
     if request.url.path == "/api/health":
         return

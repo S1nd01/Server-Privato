@@ -39,6 +39,10 @@ docker compose exec ntfy ntfy access servizi homeserver write-only
 | Uptime Kuma | Impostazioni, Notifiche, tipo Ntfy | server `http://ntfy:80`, argomento `homeserver`, utente e password |
 | Radarr, Sonarr | Impostazioni, Connetti, *Ntfy* | server `http://ntfy:80`, argomento `homeserver`, utente e password; scegli gli eventi (per esempio *Importazione completata*, *Errore*) |
 
+## Telegram
+
+Per ricevere le stesse notifiche anche su Telegram: [telegram.md](telegram.md).
+
 ## Da sapere
 
 - Sull'iPhone le notifiche istantanee richiedono di impostare `NTFY_UPSTREAM_BASE_URL=https://ntfy.sh` nel servizio (passano da ntfy.sh solo come

@@ -6,7 +6,7 @@ import anyio.to_thread
 from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import access, backup, stats, tailscale
+from . import access, backup, desired, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import MODES, SERVICES
@@ -17,9 +17,7 @@ async def lifespan(_app: FastAPI):
     # Le funzioni sincrone girano in un pool di thread (40 di serie). Il client Docker condiviso ha 16 connessioni
     # (dockerutil.py): piu' thread di cosi' resterebbero solo in coda sulla stessa connessione.
     anyio.to_thread.current_default_thread_limiter().total_tokens = 16
-    backup.start_scheduler()
     yield
-    backup.stop_scheduler()
 
 
 app = FastAPI(
@@ -115,10 +113,12 @@ def _act(sid: str, action: str):
         try:
             c = client.containers.get(name)
         except NotFound:
+            profile = f"--profile {meta['compose_profile']} " if meta.get("compose_profile") else ""
             raise HTTPException(
-                409, f"Container '{name}' non esiste: avvia prima con docker compose up -d"
+                409, f"Container '{name}' non esiste: avvia prima con docker compose {profile}up -d"
             )
         getattr(c, action)()
+        desired.record([name], action)   # ricorda cosa hai spento di proposito (riapplica-stato.sh)
     return _service_status(_snapshot(client), sid)
 
 
@@ -167,6 +167,7 @@ def apply_mode(mid: str):
         try:
             c = client.containers.get(name)
             getattr(c, action)()
+            desired.record([name], action)
             return name, "ok"
         except NotFound:
             return name, "skipped"

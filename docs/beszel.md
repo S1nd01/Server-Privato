@@ -38,8 +38,8 @@ nelle notifiche di Beszel usa il formato di Shoutrrr (`ntfy://utente:password@nt
 
 ## Cose da sapere
 
-- L'agente usa la **rete dell'host** (per vedere le vere schede di rete) e monta `/var/run/docker.sock` **in sola lettura**: serve a elencare i container, ma chi controlla l'agente
-  potrebbe leggere le variabili d'ambiente di tutti i container. Il suo socket con il hub è dentro `data/beszel/socket`, non è raggiungibile dalla rete.
+- L'agente usa la **rete dell'host** (per vedere le vere schede di rete) e monta `/var/run/docker.sock`: serve a elencare i container. Il `:ro` **non** lo rende innocuo (limita il file, non le richieste) e non passa dal proxy
+  come Diun e Autoheal, perché in rete host non entra nelle reti interne dei proxy; chi controlla l'agente controlla la macchina ([security.md](security.md)). Il suo socket con il hub è dentro `data/beszel/socket`, non è raggiungibile dalla rete.
 - Memoria: hub circa 50 MB, agente circa 15 MB (tetti a 256 e 128 MB). Sul Raspberry funziona senza problemi (immagini multi-architettura).
 - La **temperatura** si legge solo dove il sistema espone i sensori (Raspberry e molti PC; di solito non nella WSL).
 - Perdi la password del hub: `./src/scripts/recupera-credenziali.sh beszel LA_TUA_EMAIL`.

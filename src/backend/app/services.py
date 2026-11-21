@@ -8,6 +8,8 @@ Campi opzionali:
   allow_stop  False = il pannello non lo ferma ne' lo riavvia (Tailscale: fermandolo perderesti l'accesso)
   ts_only     True = si apre solo dall'indirizzo Tailscale (https://<nome>.ts.net:porta): niente link "Apri" da localhost
   group       "utility" = la scheda sta nel blocco Utility del pannello (manutenzione, compressione...), non tra i servizi
+  compose_profile  profilo di compose.yaml che lo crea (non parte con un `up` normale): il pannello lo scrive nel suggerimento
+              quando il container non esiste (Portainer: --profile admin-tools)
 """
 
 SERVICES = {
@@ -104,15 +106,26 @@ SERVICES = {
         "containers": ["portainer"],
         "scheme": "https",
         "url_port": 9443,
+        "compose_profile": "admin-tools",   # su richiesta: docker compose --profile admin-tools up -d portainer
     },
     # ---- blocco Utility del pannello (group: "utility") ----
     "manutenzione": {
         "name": "Manutenzione",
         "description": "Diun avvisa quando escono nuove versioni delle immagini, Autoheal riavvia ciò che smette di rispondere",
-        "containers": ["diun", "autoheal"],
+        # I proxy del socket prima (si avviano per primi) e Diun/Autoheal dopo: senza proxy non si connettono (docs/security.md)
+        "containers": ["docker-proxy-ro", "docker-proxy-rw", "diun", "autoheal"],
         "scheme": "http",
         "url_port": None,  # nessuna interfaccia: le notifiche arrivano su ntfy (docs/manutenzione.md)
         "group": "utility",
+    },
+    "telegram": {
+        "name": "Notifiche Telegram",
+        "description": "Inoltra le notifiche di ntfy al tuo Telegram. Si attiva con ./src/scripts/telegram-setup.sh (docs/telegram.md)",
+        "containers": ["ntfy-telegram"],
+        "scheme": "http",
+        "url_port": None,  # nessuna interfaccia ne' porta
+        "group": "utility",
+        "compose_profile": "telegram",   # su richiesta: lo crea telegram-setup.sh
     },
     "compressione": {
         "name": "Compressione video",

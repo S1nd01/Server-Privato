@@ -9,7 +9,9 @@ Ha una pagina di stato con la cronologia e i tempi di risposta.
 | Da Tailscale | `https://<nome>.ts.net:3001` |
 
 I dati stanno in `data/kuma`. Non monta il socket Docker: controlla i servizi con richieste HTTP o TCP verso i nomi dei container,
-quindi non aggiunge un secondo accesso privilegiato al server.
+quindi non aggiunge un secondo accesso privilegiato al server. In compenso, per raggiungere i servizi per nome, sta in quasi tutte le reti Docker
+(non in quelle interne del database e dei proxy): se lo compromettono vede la rete di ogni gruppo, non il socket. Un monitor per un servizio
+che non sta in nessuna di quelle reti (un servizio nuovo) richiede di aggiungere la rete a Kuma in `compose.yaml` ([reti.md](reti.md)).
 
 ## Primo avvio
 

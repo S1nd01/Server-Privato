@@ -1,0 +1,19 @@
+@tailwind base;        /* senza preflight (vedi tailwind.config.js): solo le variabili --tw-* */
+@tailwind components;
+@tailwind utilities;
+
+/* Reset minimo, limitato all'hero: il resto del pannello non lo vede. Le utility (#hero-root .classe) vincono su queste regole. */
+#hero-root {
+  position: fixed; inset: 0; z-index: 20; overflow-y: auto;   /* a schermo intero, sopra tutto il resto della pagina */
+  font-family: "Bricolage Grotesque", system-ui, sans-serif;
+  line-height: 1.5;
+  color: #fff;
+  background: #000;
+  -webkit-font-smoothing: antialiased;
+}
+#hero-root *, #hero-root *::before, #hero-root *::after { box-sizing: border-box; border: 0 solid; }
+#hero-root h1, #hero-root p, #hero-root ul { margin: 0; padding: 0; }
+#hero-root ul { list-style: none; }
+#hero-root a { color: inherit; text-decoration: none; }
+#hero-root button { font: inherit; color: inherit; background: none; padding: 0; cursor: pointer; }
+#hero-root svg, #hero-root video { display: block; }

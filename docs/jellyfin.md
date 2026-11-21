@@ -10,5 +10,5 @@
 
 Note:
 - Su Raspberry Pi la conversione dei video è pesante: preferisci file che il tuo dispositivo riproduce direttamente.
-- Per la TV in casa serve `BIND_ADDR=0.0.0.0` nel `.env` (e firewall che lascia entrare solo la rete di casa), oppure Tailscale sulla TV.
+- Per la TV in casa serve `LAN_BIND_ADDR` nel `.env` (l'IP del server, o `0.0.0.0`; e un firewall che lascia entrare solo la rete di casa), oppure Tailscale sulla TV.
 - Configurazione e utenti sono in `$DATA_DIR/jellyfin/config` (inclusa nel backup Restic).

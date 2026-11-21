@@ -76,9 +76,41 @@ function stopApp() {
 }
 
 // ---- accesso con token ----
+// La schermata iniziale (React, src/hero) compare solo a chi non e' autenticato e solo la prima volta dopo l'apertura della pagina:
+// un token rifiutato o scaduto porta dritto al form. Se il modulo non si carica (build assente, rete) si va al form: l'accesso non dipende mai dall'hero.
+let heroDone = false;
+
 function showGate(message) {
   stopApp();
   $("app").hidden = true;
+  if (!message && !heroDone) { showHero(); return; }
+  openGate(message);
+}
+
+async function showHero() {
+  const root = $("hero-root");
+  $("gate").hidden = true;
+  try {
+    const { mountHero } = await import("/hero/hero.js");
+    const unmount = await mountHero(root, {
+      onEnter({ go, help } = {}) {
+        heroDone = true;
+        unmount();
+        root.hidden = true;
+        if (go) history.replaceState(null, "", "#" + go);   // la scheda che si apre dopo l'accesso
+        openGate("");
+        if (help) document.querySelector(".gate-help").open = true;
+      },
+    });
+    root.hidden = false;   // solo a montaggio finito (stile caricato): niente lampo di pagina vuota
+  } catch {
+    heroDone = true;
+    root.hidden = true;
+    openGate("");
+  }
+}
+
+function openGate(message) {
   $("gate").hidden = false;
   const msg = $("gate-msg");
   msg.textContent = message || "";

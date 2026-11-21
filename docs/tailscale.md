@@ -20,8 +20,8 @@ Senza chiave: apri il pannello (http://localhost:8088, sezione Rete) e usa il pu
 ## A casa
 
 Il server e' raggiungibile con lo stesso indirizzo `https://<nome>.ts.net` anche dalla rete di casa: basta che il dispositivo
-abbia Tailscale acceso. Per un dispositivo senza Tailscale (per esempio una TV con Jellyfin) serve `BIND_ADDR=0.0.0.0` nel
-`.env` e il suo indirizzo `http://IP-del-server:8096`, senza HTTPS.
+abbia Tailscale acceso. Per un dispositivo senza Tailscale (per esempio una TV con Jellyfin) serve `LAN_BIND_ADDR` (l'IP del
+server, o `0.0.0.0`) nel `.env` e il suo indirizzo `http://IP-del-server:8096`, senza HTTPS.
 
 ## Sul telefono
 

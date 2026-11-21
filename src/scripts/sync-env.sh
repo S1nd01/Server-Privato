@@ -102,7 +102,13 @@ set_kv DATA_DIR "$data_dir"
 set_kv PHOTOS_DIR "$data_dir/photos"
 set_kv MEDIA_DIR "$data_dir/media"
 set_kv BACKUP_DIR "$backup_base/vaultwarden"
-set_kv RESTIC_REPO_DIR "$backup_base/restic"
+# Con un disco di backup configurato (backup-disco.sh) RESTIC_REPO_DIR sta sul disco: non lo si riporta in data/backups.
+if [ -z "$(get BACKUP_DISK_DIR)" ]; then set_kv RESTIC_REPO_DIR "$backup_base/restic"; fi
+# Il backup di Restic ora parte solo quando lo avvia l'admin dal pannello: la vecchia pianificazione non c'e' piu'.
+if grep -q '^RESTIC_SCHEDULE=' .env; then
+  sed -i '/^RESTIC_SCHEDULE=/d' .env
+  echo "NOTA: tolto RESTIC_SCHEDULE dal .env: il backup Restic non e' piu' automatico, lo avvia l'admin dal pannello (docs/restic.md)." >&2
+fi
 
 warn_old_path() {
   local label="$1" path="$2" expected="$3"
@@ -114,10 +120,10 @@ warn_old_path "I dati dei servizi" "$old_data" "$data_dir"
 warn_old_path "Le foto" "$old_photos" "$data_dir/photos"
 warn_old_path "I media Jellyfin" "$old_media" "$data_dir/media"
 warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
-warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
+if [ -z "$(get BACKUP_DISK_DIR)" ]; then warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"; fi
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache recyclarr/config maintainerr beszel/data beszel/socket beszel/agent diun kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache recyclarr/config maintainerr beszel/data beszel/socket beszel/agent diun kuma ntfy telegram telegram/state photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
@@ -207,12 +213,12 @@ setup_backup() {
   local ans="" do_cron="${HS_VW_CRON:-}" first_setup=0
   [ "$(get BACKUP_SETUP)" = done ] || first_setup=1
   mkdir -p "$backup_base/restic" "$backup_base/vaultwarden" || die "Non riesco a creare le cartelle dei backup in $backup_base."
-  set_kv RESTIC_REPO_DIR "$backup_base/restic"
+  if [ -z "$(get BACKUP_DISK_DIR)" ]; then set_kv RESTIC_REPO_DIR "$backup_base/restic"; fi
   set_kv BACKUP_DIR "$backup_base/vaultwarden"
   if [ -z "$(get RESTIC_PASSWORD_FILE)" ]; then make_pass "$RESTIC_PASS_FILE" Restic; set_kv RESTIC_PASSWORD_FILE "$RESTIC_PASS_FILE"; fi
   if [ -z "$(get BACKUP_PASSPHRASE_FILE)" ]; then make_pass "$VW_PASS_FILE" Vaultwarden; set_kv BACKUP_PASSPHRASE_FILE "$VW_PASS_FILE"; fi
   set_kv BACKUP_SETUP done
-  echo "RESTIC_REPO_DIR = $backup_base/restic"
+  echo "RESTIC_REPO_DIR = $(get RESTIC_REPO_DIR)"
   echo "BACKUP_DIR = $backup_base/vaultwarden"
 
   if [ "${#new_secrets[@]}" -gt 0 ]; then

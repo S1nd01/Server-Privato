@@ -99,7 +99,7 @@ $DC ps
 BACKUP_NOTE=""
 if grep -qE '^RESTIC_REPO_DIR=.+' .env; then
   BACKUP_NOTE="
-Backup: nel pannello, sezione Backup, premi 'Prepara l'archivio' (una volta sola).
+Backup: collega il disco esterno e lancia ./src/scripts/backup-disco.sh, poi nel pannello (Backup) premi 'Prepara l'archivio' (una volta sola).
 Le passphrase dei backup sono in ~/.restic-pass e ~/.vw-backup-pass: copiale FUORI dal server."
 fi
 
