@@ -5,21 +5,30 @@ backend via socket Docker. L'archivio e' cifrato da restic (AES-256 in modalita'
 counter + Poly1305-AES) con la passphrase del file RESTIC_PASSWORD_FILE.
 
 Dall'API non arriva nessun percorso ne' argomento: `kind` e' un valore di un elenco fisso, tutto il resto
-viene dal .env. Una pianificazione giornaliera (RESTIC_SCHEDULE=HH:MM) gira in un thread del backend.
+viene dal .env.
+
+Il backup parte SOLO su richiesta di un admin (POST /api/backup/jobs): non c'e' nessuna pianificazione.
+
+Disco esterno (BACKUP_DISK_DIR): l'archivio sta su un disco che si collega solo quando serve. Un disco non collegato non
+deve MAI far scrivere l'archivio sul disco di sistema (Docker crea da solo i percorsi che non esistono): prima di ogni
+operazione si controlla il file marcatore `.homeserver-backup`, che sta solo sul disco e lo crea backup-disco.sh.
+Il backend vede i montaggi fatti dopo il suo avvio perche' BACKUP_MOUNT_PARENT e' montata con propagazione rslave.
 """
 
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from docker.errors import APIError, ContainerError, NotFound
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from .auth import require_admin
 from .dockerutil import get_client
 
 log = logging.getLogger("homeserver.backup")
@@ -32,19 +41,34 @@ CACHE_VOLUME = "hs_restic_cache"
 
 # Percorsi visti da dentro il backend (montati da compose.yaml)
 LOCAL_DATA = Path("/data/datadir")
-LOCAL_REPO = Path("/data/restic-repo")
+LOCAL_PARENT = Path("/data/backup-parent")   # BACKUP_MOUNT_PARENT dell'host, montata in sola lettura con propagazione rslave
 LOCAL_PASS = Path("/data/restic-pass")
 LOCAL_PHOTOS = Path("/data/photos")
-STATE_FILE = Path("/data/panel/state.json")
+STATE_FILE = Path("/data/panel/backup.json")   # ultima copia riuscita: a disco scollegato l'archivio non si puo' leggere
+MARKER = ".homeserver-backup"                  # sta solo sul disco di backup (lo crea src/scripts/backup-disco.sh)
 
 # Cosa si salva (relativo a DATA_DIR). Il database di Immich NON e' qui: la cartella di Postgres in uso non
 # e' copiabile in modo coerente; Immich scrive da solo i dump del database in immich/upload/backups.
+# Le cartelle che non esistono si saltano (_existing_sources). I database SQLite dei servizi si copiano "a caldo": solo per
+# Vaultwarden c'e' la copia coerente (_vaultwarden_dump); per gli altri e' una copia di file in uso, di norma ripristinabile.
 SOURCES = [
     "vaultwarden", "immich/upload", "pihole", "jellyfin/config",
     "seerr/config", "radarr/config", "sonarr/config", "prowlarr/config", "qbittorrent/config",
     "recyclarr/config", "maintainerr",
+    "bazarr/config",    # impostazioni e cronologia dei sottotitoli
+    "kuma",             # Uptime Kuma: monitor e notifiche
+    "ntfy",             # utenti e argomenti (user.db); la cache dei messaggi e' esclusa sotto
+    "beszel/data",      # hub Beszel: utenti, sistemi, avvisi
+    "unmanic/config",   # regole di compressione (la cartella cache temporanea NON si salva)
+    "panel",            # stato del pannello (servizi spenti, ultima copia; in futuro gli utenti)
+    "tailscale",        # identita' del server nella rete Tailscale: ripristinarla tiene lo stesso indirizzo .ts.net
+    "syncthing",        # identita' e cartelle configurate di Syncthing (i file sincronizzati stanno anche sugli altri dispositivi)
+    "romm/assets",      # salvataggi e stati di gioco di RomM (il database e le copertine si rigenerano con una scansione; le ROM NON si salvano qui)
+    "romm/config",      # config.yml di RomM
+    "copyparty/cfg",    # account e permessi dello scambio file (la cartella «scambio» NON si salva: e' di passaggio)
 ]
 EXCLUDES = [
+    "ntfy/cache.db*",                # messaggi in coda: si rigenerano
     "seerr/config/logs",
     "radarr/config/logs",
     "radarr/config/MediaCover",      # locandine: si riscaricano
@@ -58,6 +82,7 @@ EXCLUDES = [
     "vaultwarden/tmp",
     "jellyfin/config/log",
     "maintainerr/logs",
+    "syncthing/config/index-*",      # database dei file visti: Syncthing lo ricostruisce (se manca la cartella, l'esclusione non fa nulla)
 ]
 
 _lock = threading.Lock()
@@ -82,7 +107,9 @@ def _cfg() -> dict:
         "password": os.environ.get("RESTIC_PASSWORD_FILE", ""),
         "data": os.environ.get("HOST_DATA_DIR", ""),
         "photos": os.environ.get("HOST_PHOTOS_DIR", ""),
-        "schedule": os.environ.get("RESTIC_SCHEDULE", "").strip(),
+        "disk": os.environ.get("BACKUP_DISK_DIR", "").strip(),   # vuoto = archivio locale, senza disco da controllare
+        "parent": os.environ.get("BACKUP_MOUNT_PARENT", "").strip() or (os.environ.get("HOST_DATA_DIR", "").rstrip("/") + "/backups"),
+        "warn_days": _int_env("BACKUP_WARN_DAYS", 14),
         "keep": {
             "daily": _int_env("RESTIC_KEEP_DAILY", 7),
             "weekly": _int_env("RESTIC_KEEP_WEEKLY", 4),
@@ -91,13 +118,62 @@ def _cfg() -> dict:
     }
 
 
+def _host_path(value: str) -> PurePosixPath | None:
+    """Percorso assoluto, senza '..' e senza '//' strani; None se non e' accettabile."""
+    path = PurePosixPath(value)
+    if not value.startswith("/") or ".." in path.parts or str(path) == "/":
+        return None
+    return path
+
+
+def _resolve(cfg: dict) -> dict:
+    """Dove stanno, VISTI DAL BACKEND, l'archivio e (se c'e') il disco: error dice cosa non torna nel .env."""
+    out = {"repo": None, "disk": None, "error": None}
+    parent, repo, disk = _host_path(cfg["parent"]), _host_path(cfg["repo"]), (_host_path(cfg["disk"]) if cfg["disk"] else None)
+    if parent is None:
+        out["error"] = "BACKUP_MOUNT_PARENT non è un percorso assoluto valido"
+        return out
+    if repo is None:
+        out["error"] = "RESTIC_REPO_DIR non è un percorso assoluto valido"
+        return out
+    if cfg["disk"] and disk is None:
+        out["error"] = "BACKUP_DISK_DIR non è un percorso assoluto valido"
+        return out
+    try:
+        out["repo"] = LOCAL_PARENT / repo.relative_to(parent)
+        if repo == parent:
+            raise ValueError
+        if disk is not None:
+            out["disk"] = LOCAL_PARENT / disk.relative_to(parent)
+            if disk == parent:
+                raise ValueError
+            if repo == disk:
+                raise ValueError
+            repo.relative_to(disk)
+    except ValueError:
+        out["repo"] = out["disk"] = None
+        out["error"] = ("RESTIC_REPO_DIR deve stare dentro BACKUP_DISK_DIR, e questo dentro BACKUP_MOUNT_PARENT: rilancia ./src/scripts/backup-disco.sh"
+                        if disk is not None else "RESTIC_REPO_DIR deve stare dentro BACKUP_MOUNT_PARENT")
+    return out
+
+
+def _disk_present(res: dict) -> bool:
+    """Con un disco configurato: c'e' il file marcatore? (Una cartella vuota creata da Docker NON lo ha.)"""
+    return res["disk"] is not None and (res["disk"] / MARKER).is_file()
+
+
 def _problems(cfg: dict) -> list[str]:
     """Cosa manca per poter usare il backup, in parole che dicono come rimediare."""
     p = []
     if not cfg["repo"]:
         p.append("RESTIC_REPO_DIR non è impostato nel .env")
-    elif not LOCAL_REPO.is_dir():
-        p.append("La cartella dell'archivio non esiste: creala e riavvia il backend")
+    else:
+        res = _resolve(cfg)
+        if res["error"]:
+            p.append(res["error"])
+        elif res["disk"] is None or _disk_present(res):   # a disco scollegato la cartella e' assente per forza: non e' un errore di configurazione
+            if not res["repo"].is_dir():
+                p.append("La cartella dell'archivio non esiste" + (" sul disco: rilancia ./src/scripts/backup-disco.sh" if res["disk"] else ": creala e riavvia il backend"))
     if not cfg["password"]:
         p.append("RESTIC_PASSWORD_FILE non è impostato nel .env")
     elif not (LOCAL_PASS.is_file() and LOCAL_PASS.stat().st_size > 0):
@@ -107,21 +183,77 @@ def _problems(cfg: dict) -> list[str]:
     return p
 
 
-def _initialized() -> bool:
-    return (LOCAL_REPO / "config").is_file()
+def _disk_info(cfg: dict) -> dict | None:
+    """None = archivio locale. Altrimenti: dove deve stare il disco e se in questo momento c'e'."""
+    if not cfg["disk"]:
+        return None
+    return {"path": cfg["disk"], "present": _disk_present(_resolve(cfg))}
+
+
+def _require_disk(cfg: dict) -> None:
+    info = _disk_info(cfg)
+    if info is not None and not info["present"]:
+        raise HTTPException(409, f"Il disco di backup non è collegato (lo cerco in {info['path']}): collegalo e riprova")
+
+
+def _initialized(cfg: dict) -> bool:
+    repo = _resolve(cfg)["repo"]
+    return repo is not None and (repo / "config").is_file()
 
 
 def _existing_sources() -> list[str]:
     return [s for s in SOURCES if (LOCAL_DATA / s).exists()]
 
 
-def _last_backup_at() -> str | None:
-    """Data dell'ultimo snapshot, dalla data dei file in <archivio>/snapshots (senza avviare restic)."""
+def _parse_ts(value) -> datetime | None:
+    """Data/ora di Docker ('2026-11-07T17:03:12.123456789Z') o ISO: sempre con fuso, frazione di secondo troncata."""
+    if not value or not isinstance(value, str):
+        return None
+    v = value.strip().replace("Z", "+00:00")
+    m = re.match(r"^(.*?\.\d{1,6})\d*(.*)$", v)
+    if m:
+        v = m.group(1) + m.group(2)
     try:
-        newest = max((p.stat().st_mtime for p in (LOCAL_REPO / "snapshots").rglob("*") if p.is_file()), default=None)
+        dt = datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _repo_last_backup(cfg: dict) -> datetime | None:
+    """Data dell'ultimo snapshot, dalla data dei file in <archivio>/snapshots (senza avviare restic)."""
+    repo = _resolve(cfg)["repo"]
+    if repo is None:
+        return None
+    try:
+        newest = max((p.stat().st_mtime for p in (repo / "snapshots").rglob("*") if p.is_file()), default=None)
     except OSError:
         return None
-    return datetime.fromtimestamp(newest, tz=timezone.utc).isoformat() if newest else None
+    return datetime.fromtimestamp(newest, tz=timezone.utc) if newest else None
+
+
+def _remember_last(job: dict | None) -> None:
+    """Annota l'ultimo backup riuscito: dopo un'operazione di pulizia il lavoro precedente sparisce, e a disco
+    scollegato non c'e' l'archivio da cui leggere la data."""
+    if not job or job.get("kind") != "backup" or job.get("result") not in ("ok", "warning"):
+        return
+    finished = _parse_ts(job.get("finished_at"))
+    if finished is None or finished.year < 2000:   # Docker mette 0001-01-01 se non e' ancora finito
+        return
+    state = _load_state()
+    known = _parse_ts(state.get("last_backup_at"))
+    if known is None or finished > known:
+        state["last_backup_at"] = finished.isoformat()
+        _save_state(state)
+
+
+def _last_backup_at(cfg: dict) -> datetime | None:
+    cands = [_parse_ts(_load_state().get("last_backup_at"))]
+    info = _disk_info(cfg)
+    if info is None or info["present"]:
+        cands.append(_repo_last_backup(cfg))
+    cands = [c for c in cands if c]
+    return max(cands) if cands else None
 
 
 # ---------- comandi restic ----------
@@ -215,7 +347,8 @@ def start_job(client, kind: str) -> dict:
         problems = _problems(cfg)
         if problems:
             raise HTTPException(409, "Backup non configurato: " + "; ".join(problems))
-        initialized = _initialized()
+        _require_disk(cfg)   # PRIMA di qualunque cosa: senza disco Docker creerebbe il percorso dell'archivio sul disco di sistema
+        initialized = _initialized(cfg)
         if kind == "init" and initialized:
             raise HTTPException(409, "L'archivio esiste già")
         if kind != "init" and not initialized:
@@ -265,7 +398,7 @@ class JobRequest(BaseModel):
     kind: Literal["init", "backup", "forget", "check"]
 
 
-@router.post("/jobs", status_code=202)
+@router.post("/jobs", status_code=202, dependencies=[Depends(require_admin)])   # solo l'admin: init, backup, pulizia, controllo
 def create_job(req: JobRequest):
     return start_job(get_client(), req.kind)
 
@@ -289,17 +422,27 @@ def status():
         job = _current_job(get_client())
     except Exception:  # noqa: BLE001 - lo stato si mostra anche se Docker non risponde
         pass
+    _remember_last(job)
+    disk = _disk_info(cfg)
+    usable = not problems and (disk is None or disk["present"])
     sources = [{"path": s, "exists": (LOCAL_DATA / s).exists()} for s in SOURCES]
     if cfg["photos"]:
         sources.append({"path": "Foto esterne", "exists": LOCAL_PHOTOS.is_dir()})
+    last = None if problems else _last_backup_at(cfg)
+    age = (datetime.now(timezone.utc) - last).days if last else None
+    initialized = _initialized(cfg) if usable else None   # a disco scollegato non si sa
     return {
         "configured": not problems,
         "problems": problems,
-        "initialized": not problems and _initialized(),
+        "initialized": initialized,
         "repo": cfg["repo"] or None,
-        "schedule": cfg["schedule"] or None,
+        "disk": disk,
+        "manual_only": True,
         "keep": cfg["keep"],
-        "last_backup_at": None if problems else _last_backup_at(),
+        "last_backup_at": last.isoformat() if last else None,
+        "age_days": age,
+        "stale": bool(cfg["warn_days"] and not problems and initialized is not False and (age is None or age >= cfg["warn_days"])),
+        "warn_days": cfg["warn_days"],
         "job": job,
         "sources": sources,
     }
@@ -339,7 +482,8 @@ def snapshots():
     problems = _problems(cfg)
     if problems:
         raise HTTPException(409, "Backup non configurato: " + "; ".join(problems))
-    if not _initialized():
+    _require_disk(cfg)
+    if not _initialized(cfg):
         raise HTTPException(409, "Prepara prima l'archivio")
     client = get_client()
     if _current_job(client) and _current_job(client)["status"] == "running":
@@ -357,20 +501,7 @@ def snapshots():
     return parse_snapshots(out)
 
 
-# ---------- pianificazione ----------
-
-def should_run(now: datetime, schedule: str, last_run_date: str | None) -> bool:
-    """True se e' passata l'ora pianificata di oggi e oggi il backup non e' ancora partito.
-
-    Se il server era spento all'ora indicata, il backup parte appena torna acceso (stesso giorno).
-    """
-    try:
-        hh, mm = (int(x) for x in schedule.split(":"))
-        due = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    except ValueError:
-        return False
-    return now >= due and last_run_date != now.date().isoformat()
-
+# ---------- stato (ultima copia riuscita) ----------
 
 def _load_state() -> dict:
     try:
@@ -383,72 +514,8 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     try:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(json.dumps(state))
+        tmp = STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state))
+        tmp.replace(STATE_FILE)
     except OSError:
-        log.warning("Non riesco a salvare lo stato della pianificazione in %s", STATE_FILE)
-
-
-_stop = threading.Event()
-_thread: threading.Thread | None = None
-
-
-def _wait_job(client, max_hours: float = 12) -> dict | None:
-    for _ in range(int(max_hours * 360)):  # controllo ogni 10 s
-        if _stop.is_set():
-            return None
-        info = _current_job(client)
-        if info is None or info["status"] != "running":
-            return info
-        _stop.wait(10)
-    return None
-
-
-def _tick(now: datetime | None = None) -> None:
-    cfg = _cfg()
-    if _problems(cfg) or not _initialized():
-        return
-    now = now or datetime.now()
-    state = _load_state()
-    if not should_run(now, cfg["schedule"], state.get("last_run_date")):
-        return
-    client = get_client()
-    try:
-        start_job(client, "backup")
-    except Busy:
-        return  # riprovo al prossimo controllo
-    except HTTPException as exc:
-        log.warning("Backup pianificato non avviato: %s", exc.detail)
-    state["last_run_date"] = now.date().isoformat()  # in ogni altro caso non ritento fino a domani
-    _save_state(state)
-    info = _wait_job(client)
-    if info and info["result"] in ("ok", "warning"):
-        try:
-            start_job(client, "forget")
-            _wait_job(client)
-        except HTTPException as exc:
-            log.warning("Pulizia pianificata non avviata: %s", exc.detail)
-
-
-def _loop() -> None:
-    if _stop.wait(60):  # lascio il tempo a Docker di essere pronto
-        return
-    while not _stop.is_set():
-        try:
-            _tick()
-        except Exception:  # noqa: BLE001
-            log.exception("Errore nella pianificazione del backup")
-        if _stop.wait(60):
-            return
-
-
-def start_scheduler() -> None:
-    global _thread
-    if not _cfg()["schedule"]:
-        return
-    _stop.clear()
-    _thread = threading.Thread(target=_loop, name="backup-scheduler", daemon=True)
-    _thread.start()
-
-
-def stop_scheduler() -> None:
-    _stop.set()
+        log.warning("Non riesco a salvare lo stato del backup in %s", STATE_FILE)

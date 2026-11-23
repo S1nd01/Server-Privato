@@ -6,10 +6,10 @@ import anyio.to_thread
 from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import access, backup, stats, tailscale
+from . import access, backup, desired, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
-from .services import MODES, SERVICES
+from .services import MODES, NETWORK_PROVIDERS, SERVICES
 
 
 @asynccontextmanager
@@ -17,9 +17,7 @@ async def lifespan(_app: FastAPI):
     # Le funzioni sincrone girano in un pool di thread (40 di serie). Il client Docker condiviso ha 16 connessioni
     # (dockerutil.py): piu' thread di cosi' resterebbero solo in coda sulla stessa connessione.
     anyio.to_thread.current_default_thread_limiter().total_tokens = 16
-    backup.start_scheduler()
     yield
-    backup.stop_scheduler()
 
 
 app = FastAPI(
@@ -48,7 +46,10 @@ def _snapshot(client) -> dict[str, str]:
 
 def _service_status(states: dict[str, str], sid: str) -> dict:
     meta = SERVICES[sid]
-    containers = [{"name": n, "status": states.get(n, "not_created")} for n in meta["containers"]]
+    optional = set(meta.get("optional", ()))
+    # un container opzionale che non esiste (per esempio gluetun senza VPN) non conta: ne' nell'elenco ne' nello stato del gruppo
+    containers = [{"name": n, "status": states.get(n, "not_created")} for n in meta["containers"]
+                  if not (n in optional and n not in states)]
     statuses = {c["status"] for c in containers}
     if statuses == {"running"}:
         overall = "running"
@@ -115,10 +116,14 @@ def _act(sid: str, action: str):
         try:
             c = client.containers.get(name)
         except NotFound:
+            if name in meta.get("optional", ()):
+                continue   # compose.vpn.yml non attivo: niente gluetun, e va bene cosi'
+            profile = f"--profile {meta['compose_profile']} " if meta.get("compose_profile") else ""
             raise HTTPException(
-                409, f"Container '{name}' non esiste: avvia prima con docker compose up -d"
+                409, f"Container '{name}' non esiste: avvia prima con docker compose {profile}up -d"
             )
         getattr(c, action)()
+        desired.record([name], action)   # ricorda cosa hai spento di proposito (riapplica-stato.sh)
     return _service_status(_snapshot(client), sid)
 
 
@@ -167,14 +172,24 @@ def apply_mode(mid: str):
         try:
             c = client.containers.get(name)
             getattr(c, action)()
+            desired.record([name], action)
             return name, "ok"
         except NotFound:
             return name, "skipped"
         except DockerException as exc:
             return name, f"error: {exc}"
 
+    # Chi fornisce la rete ad altri container (gluetun per qBittorrent) deve partire PRIMA e fermarsi DOPO: `docker start` di un
+    # container che usa la rete di uno fermo da' errore. Quindi in sequenza, fuori dal gruppo parallelo.
+    providers = [n for n in targets if n in NETWORK_PROVIDERS]
+    others = [n for n in targets if n not in NETWORK_PROVIDERS]
+    results: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="mode") as pool:
-        results = list(pool.map(one, targets))
+        if action == "start":
+            results += [one(n) for n in providers]
+        results += list(pool.map(one, others))
+        if action != "start":
+            results += [one(n) for n in providers]
     errors = [f"{n} ({r[7:]})" for n, r in results if r.startswith("error")]
     if errors:
         raise HTTPException(502, "Alcuni container non hanno risposto: " + ", ".join(errors))

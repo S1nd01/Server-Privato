@@ -86,6 +86,23 @@ if immich_db_exists; then
   echo "NOTA: il database di Immich esiste gia'. Se Immich scrive 'password authentication failed', la password nel .env non e' quella con cui fu creato: lancia ./src/scripts/fix-immich-db.sh (non perde dati)." >&2
 fi
 
+# RomM (profilo "romm", docs/romm.md): password del database e chiave di sessione, generate una volta sola.
+# La password del database si genera solo se il database non esiste ancora (MariaDB prende in carico la sua cartella: proprietario diverso dal tuo).
+romm_db_exists() { local d="$project_dir/data/romm/db"; [ -d "$d" ] && [ "$(stat -c %u "$d")" != "$(id -u)" ]; }
+fill_secret() {   # fill_secret NOME BYTE_HEX: scrive il valore solo se manca nel .env
+  grep -qE "^$1=.+" .env && return 0
+  local v; v="$(openssl rand -hex "$2")"
+  if grep -q "^$1=" .env; then sed -i "s/^$1=.*/$1=$v/" .env; else echo "$1=$v" >> .env; fi
+  echo "Generato $1 nel .env."
+}
+fill_secret ROMM_AUTH_SECRET_KEY 32
+if ! romm_db_exists; then
+  fill_secret ROMM_DB_PASSWORD 16
+  fill_secret ROMM_DB_ROOT_PASSWORD 16
+elif ! grep -qE '^ROMM_DB_PASSWORD=.+' .env; then
+  echo "NOTA: il database di RomM esiste gia' ma nel .env manca ROMM_DB_PASSWORD: RomM non partira'. Rimetti la password con cui fu creato (docs/romm.md)." >&2
+fi
+
 if ! grep -qE '^PIHOLE_PASSWORD=.+' .env; then
   pw="$(openssl rand -hex 12)"
   sed -i "s/^PIHOLE_PASSWORD=.*/PIHOLE_PASSWORD=$pw/" .env
@@ -102,7 +119,13 @@ set_kv DATA_DIR "$data_dir"
 set_kv PHOTOS_DIR "$data_dir/photos"
 set_kv MEDIA_DIR "$data_dir/media"
 set_kv BACKUP_DIR "$backup_base/vaultwarden"
-set_kv RESTIC_REPO_DIR "$backup_base/restic"
+# Con un disco di backup configurato (backup-disco.sh) RESTIC_REPO_DIR sta sul disco: non lo si riporta in data/backups.
+if [ -z "$(get BACKUP_DISK_DIR)" ]; then set_kv RESTIC_REPO_DIR "$backup_base/restic"; fi
+# Il backup di Restic ora parte solo quando lo avvia l'admin dal pannello: la vecchia pianificazione non c'e' piu'.
+if grep -q '^RESTIC_SCHEDULE=' .env; then
+  sed -i '/^RESTIC_SCHEDULE=/d' .env
+  echo "NOTA: tolto RESTIC_SCHEDULE dal .env: il backup Restic non e' piu' automatico, lo avvia l'admin dal pannello (docs/restic.md)." >&2
+fi
 
 warn_old_path() {
   local label="$1" path="$2" expected="$3"
@@ -114,10 +137,10 @@ warn_old_path "I dati dei servizi" "$old_data" "$data_dir"
 warn_old_path "Le foto" "$old_photos" "$data_dir/photos"
 warn_old_path "I media Jellyfin" "$old_media" "$data_dir/media"
 warn_old_path "I backup Vaultwarden" "$old_backup" "$backup_base/vaultwarden"
-warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"
+if [ -z "$(get BACKUP_DISK_DIR)" ]; then warn_old_path "L'archivio Restic" "$old_restic" "$backup_base/restic"; fi
 
 # ---------------------------------------------------------------- cartelle
-SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache recyclarr/config maintainerr beszel/data beszel/socket beszel/agent diun kuma ntfy photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden)   # tienile uguali a src/backend/app/stats.py
+SUBDIRS=(jellyfin/config jellyfin/cache media media/Film "media/Serie TV" media/Discoveries media/downloads seerr/config radarr/config sonarr/config prowlarr/config qbittorrent/config bazarr/config unmanic/config unmanic/cache recyclarr/config maintainerr beszel/data beszel/socket beszel/agent diun kuma ntfy telegram telegram/state photos panel pihole tailscale restore immich/upload immich/postgres immich/model-cache vaultwarden portainer backups/restic backups/vaultwarden scambio copyparty/cfg copyparty/hist syncthing sync convertx rclone gluetun plex/config romm/db romm/resources romm/redis romm/library romm/library/roms romm/assets romm/config)   # tienile uguali a src/backend/app/stats.py
 
 make_dirs() {
   local d
@@ -207,12 +230,12 @@ setup_backup() {
   local ans="" do_cron="${HS_VW_CRON:-}" first_setup=0
   [ "$(get BACKUP_SETUP)" = done ] || first_setup=1
   mkdir -p "$backup_base/restic" "$backup_base/vaultwarden" || die "Non riesco a creare le cartelle dei backup in $backup_base."
-  set_kv RESTIC_REPO_DIR "$backup_base/restic"
+  if [ -z "$(get BACKUP_DISK_DIR)" ]; then set_kv RESTIC_REPO_DIR "$backup_base/restic"; fi
   set_kv BACKUP_DIR "$backup_base/vaultwarden"
   if [ -z "$(get RESTIC_PASSWORD_FILE)" ]; then make_pass "$RESTIC_PASS_FILE" Restic; set_kv RESTIC_PASSWORD_FILE "$RESTIC_PASS_FILE"; fi
   if [ -z "$(get BACKUP_PASSPHRASE_FILE)" ]; then make_pass "$VW_PASS_FILE" Vaultwarden; set_kv BACKUP_PASSPHRASE_FILE "$VW_PASS_FILE"; fi
   set_kv BACKUP_SETUP done
-  echo "RESTIC_REPO_DIR = $backup_base/restic"
+  echo "RESTIC_REPO_DIR = $(get RESTIC_REPO_DIR)"
   echo "BACKUP_DIR = $backup_base/vaultwarden"
 
   if [ "${#new_secrets[@]}" -gt 0 ]; then

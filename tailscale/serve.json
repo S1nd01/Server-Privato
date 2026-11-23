@@ -16,7 +16,13 @@
     "2586": { "HTTPS": true },
     "8888": { "HTTPS": true },
     "8090": { "HTTPS": true },
-    "6246": { "HTTPS": true }
+    "6246": { "HTTPS": true },
+    "3923": { "HTTPS": true },
+    "8384": { "HTTPS": true },
+    "3000": { "HTTPS": true },
+    "32400": { "HTTPS": true },
+    "8085": { "HTTPS": true },
+    "22000": { "TCPForward": "syncthing:22000" }
   },
   "Web": {
     "${TS_CERT_DOMAIN}:443":  { "Handlers": { "/": { "Proxy": "http://hs_frontend:80" } } },
@@ -35,6 +41,11 @@
     "${TS_CERT_DOMAIN}:2586": { "Handlers": { "/": { "Proxy": "http://ntfy:80" } } },
     "${TS_CERT_DOMAIN}:8888": { "Handlers": { "/": { "Proxy": "http://unmanic:8888" } } },
     "${TS_CERT_DOMAIN}:8090": { "Handlers": { "/": { "Proxy": "http://beszel:8090" } } },
-    "${TS_CERT_DOMAIN}:6246": { "Handlers": { "/": { "Proxy": "http://maintainerr:6246" } } }
+    "${TS_CERT_DOMAIN}:6246": { "Handlers": { "/": { "Proxy": "http://maintainerr:6246" } } },
+    "${TS_CERT_DOMAIN}:3923": { "Handlers": { "/": { "Proxy": "http://copyparty:3923" } } },
+    "${TS_CERT_DOMAIN}:8384": { "Handlers": { "/": { "Proxy": "http://syncthing:8384" } } },
+    "${TS_CERT_DOMAIN}:3000": { "Handlers": { "/": { "Proxy": "http://convertx:3000" } } },
+    "${TS_CERT_DOMAIN}:32400": { "Handlers": { "/": { "Proxy": "http://plex:32400" } } },
+    "${TS_CERT_DOMAIN}:8085": { "Handlers": { "/": { "Proxy": "http://romm:8080" } } }
   }
 }

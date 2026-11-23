@@ -1,8 +1,15 @@
 name: homeserver
 
-# Le porte pubblicate sul computer restano di default su 127.0.0.1 (BIND_ADDR): dal telefono e da fuori casa
-# si passa da Tailscale, unico proxy del progetto: pubblica i servizi in HTTPS (vedi tailscale/serve.json e docs/tailscale.md).
-# Per raggiungerli anche dalla rete di casa senza Tailscale: BIND_ADDR=0.0.0.0 nel .env.
+# Tutte le porte pubblicate sul computer stanno su 127.0.0.1: dal telefono e da fuori casa si passa da Tailscale, unico proxy
+# del progetto, che pubblica i servizi in HTTPS (vedi tailscale/serve.json e docs/tailscale.md).
+# Uniche eccezioni, scelte una per una: Jellyfin e Seerr seguono LAN_BIND_ADDR (127.0.0.1 di serie; 0.0.0.0 per usarli dalla
+# rete di casa senza Tailscale). Se LAN_BIND_ADDR manca vale ancora BIND_ADDR (compatibilita'), ma ora tocca solo quei due.
+#
+# Reti: ogni gruppo di servizi sta in una rete propria e vede solo i suoi vicini (elenco e motivi in docs/reti.md).
+# Tailscale (pubblica) e Uptime Kuma (controlla) sono gli unici a entrare in piu' reti.
+# Socket Docker: lo montano per intero solo Portainer (su richiesta) e Beszel agent (eccezione spiegata sul servizio), oltre ai tre
+# filtri. Il backend passa da docker-gate (filtro che guarda anche il corpo delle richieste); Diun e Autoheal da due proxy a
+# permessi minimi (docker-proxy-ro, docker-proxy-rw).
 
 # Log dei container: senza questo Docker li tiene senza limite e il disco si riempie piano piano (e l'SD del Raspberry si consuma).
 x-logging: &logging
@@ -14,17 +21,36 @@ x-logging: &logging
 services:
   # ---------- App (frontend + backend/API) ----------
   frontend:
-    image: nginx:alpine
+    # Si costruisce qui (src/Dockerfile.frontend): nginx con la PWA statica e la schermata iniziale in React, compilata durante la build.
+    # Dopo ogni modifica a src/frontend o src/hero: docker compose up -d --build frontend
+    build:
+      context: ./src
+      dockerfile: Dockerfile.frontend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
     container_name: hs_frontend
     logging: *logging
     ports:
       - "127.0.0.1:8088:80"   # solo dal PC stesso: il pannello comanda Docker, non va esposto in LAN
     volumes:
-      - ./src/frontend:/usr/share/nginx/html:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+    networks:
+      - panel
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - autoheal=true
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy   # nginx ora parte anche senza backend, ma cosi' il pannello si apre quando le API rispondono
     restart: unless-stopped
 
   backend:
@@ -35,31 +61,57 @@ services:
       TZ: ${TZ}
       API_TOKEN_HASH: ${API_TOKEN_HASH:-}
       API_TOKEN: ${API_TOKEN:-}   # vecchio metodo in chiaro, solo compatibilita'
+      # Niente socket Docker montato: il backend parla con docker-gate, che lascia passare solo cio' che serve (docs/security.md)
+      DOCKER_HOST: tcp://docker-gate:2375
       # percorsi HOST (per i container figli lanciati dal backend)
       HOST_DATA_DIR: ${DATA_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
       HOST_PHOTOS_DIR: ${DATA_DIR}/photos
       RESTIC_IMAGE: ${RESTIC_IMAGE:-restic/restic:latest}
       RESTIC_REPO_DIR: ${RESTIC_REPO_DIR:-}
       RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
-      RESTIC_SCHEDULE: ${RESTIC_SCHEDULE:-03:30}
+      # Disco esterno per l'archivio (src/scripts/backup-disco.sh); vuoti = archivio locale in data/backups
+      BACKUP_DISK_DIR: ${BACKUP_DISK_DIR:-}
+      BACKUP_MOUNT_PARENT: ${BACKUP_MOUNT_PARENT:-${DATA_DIR}/backups}
+      BACKUP_WARN_DAYS: ${BACKUP_WARN_DAYS:-14}
       RESTIC_KEEP_DAILY: ${RESTIC_KEEP_DAILY:-7}
       RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-4}
       RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-6}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       # sola lettura: servono al backend per sapere cosa c'e' da salvare e se l'archivio e' pronto
       - ${DATA_DIR}:/data/datadir:ro
       - ${DATA_DIR}/photos:/data/photos:ro
-      - ${DATA_DIR}/backups/restic:/data/restic-repo:ro
+      # La cartella che CONTIENE il disco di backup, con propagazione rslave: il disco si collega e si scollega a caldo e il
+      # backend se ne accorge senza riavviarsi. Sola lettura: l'archivio lo scrive il container restic lanciato per ogni lavoro.
+      - type: bind
+        source: ${BACKUP_MOUNT_PARENT:-${DATA_DIR}/backups}
+        target: /data/backup-parent
+        read_only: true
+        bind:
+          propagation: rslave
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/data/restic-pass:ro
-      - ${DATA_DIR}/panel:/data/panel   # stato della pianificazione
+      - ${DATA_DIR}/panel:/data/panel   # stato del pannello (servizi spenti, ultima copia di backup)
     labels:
       - diun.enable=false   # immagine costruita in locale: niente da controllare su un registro
+      - autoheal=true
+    networks:
+      - panel
+      - dockerproxy_api   # interna: solo docker-gate
+    depends_on:
+      - docker-gate
+    security_opt:
+      - no-new-privileges:true
+    # /api/health non chiede il token e non tocca Docker: dice solo che il processo risponde. L'immagine non ha curl.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   # ---------- Tailscale: accesso da fuori casa, in HTTPS ----------
   tailscale:
-    image: tailscale/tailscale:latest
+    image: ${TAILSCALE_IMAGE:-tailscale/tailscale:latest}
     container_name: tailscale
     logging: *logging
     oom_score_adj: -500
@@ -74,6 +126,19 @@ services:
     volumes:
       - ${DATA_DIR}/tailscale:/var/lib/tailscale
       - ./tailscale/serve.json:/config/serve.json:ro
+    # Entra in tutte le reti dei servizi che pubblica (ogni upstream di serve.json deve stare in una di queste).
+    networks:
+      - panel
+      - photos
+      - media
+      - arr
+      - vault
+      - tools
+      - notify
+      - files
+      - sync
+      - convert
+      - romm
     restart: unless-stopped
 
   # ---------- Immich ----------
@@ -91,10 +156,15 @@ services:
       DB_DATABASE_NAME: immich
       REDIS_HOSTNAME: immich_redis
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:2283:2283"
+      - "127.0.0.1:2283:2283"
+    networks:
+      - photos
+      - immich_db
     depends_on:
-      - immich-redis
-      - immich-postgres
+      immich-redis:
+        condition: service_healthy
+      immich-postgres:
+        condition: service_healthy   # dopo un `up` Immich non parte finche' il database non accetta connessioni
     labels:
       - autoheal=true
     restart: unless-stopped
@@ -108,12 +178,21 @@ services:
     oom_score_adj: 500     # se la RAM finisce, e' il primo a essere fermato
     volumes:
       - ${DATA_DIR}/immich/model-cache:/cache
+    networks:
+      - photos
     restart: unless-stopped
 
   immich-redis:
     image: docker.io/valkey/valkey:8-bookworm
     container_name: immich_redis
     logging: *logging
+    networks:
+      - immich_db
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG || redis-cli ping | grep -q PONG || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   immich-postgres:
@@ -127,11 +206,20 @@ services:
       POSTGRES_INITDB_ARGS: "--data-checksums"
     volumes:
       - ${DATA_DIR}/immich/postgres:/var/lib/postgresql/data
+    networks:
+      - immich_db
+    healthcheck:
+      # -h 127.0.0.1: durante l'inizializzazione Postgres ascolta solo sul socket; via TCP risponde solo il server vero
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d immich || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # ---------- Jellyfin ----------
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: ${JELLYFIN_IMAGE:-jellyfin/jellyfin:latest}
     container_name: jellyfin
     logging: *logging
     user: "${PUID:-1000}:${PGID:-1000}"   # le cartelle le crea src/scripts/sync-env.sh col tuo utente
@@ -144,7 +232,62 @@ services:
       # Unica eccezione alla sola lettura: JellyBridge ci scrive i segnaposto dei contenuti da scoprire (docs/seerr.md)
       - ${DATA_DIR}/media/Discoveries:/media/Discoveries
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:8096:8096"
+      - "${LAN_BIND_ADDR:-${BIND_ADDR:-127.0.0.1}}:8096:8096"   # una delle due porte che possono stare in LAN (LAN_BIND_ADDR)
+    networks:
+      - media
+    labels:
+      - autoheal=true
+    restart: unless-stopped
+
+  # ---------- Plex (docs/plex.md) ----------
+  # Alternativa/complemento a Jellyfin sulla stessa cartella media (/media, in sola lettura): Radarr e Sonarr scrivono li', Plex legge.
+  # Profilo "plex": non parte con `up`. Accendilo dal pannello o con `docker compose --profile plex up -d plex`.
+  # L'immagine ufficiale parte come root e poi passa a PLEX_UID/PLEX_GID: per questo servono CHOWN, SETUID, SETGID, DAC_OVERRIDE e FOWNER
+  # (tutte le altre capacita' sono tolte). Nessuna porta aperta verso Internet: da fuori casa si passa da Tailscale (porta 32400).
+  plex:
+    image: ${PLEX_IMAGE:-plexinc/pms-docker:latest}
+    container_name: plex
+    profiles: ["plex"]
+    logging: *logging
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${PLEX_CPUS:-3}"
+    mem_limit: ${PLEX_MEM:-2g}
+    pids_limit: 512
+    environment:
+      TZ: ${TZ}
+      PLEX_UID: ${PUID:-1000}
+      PLEX_GID: ${PGID:-1000}
+      # Token valido pochi minuti (https://plex.tv/claim): serve solo al primo avvio per associare il server al tuo account
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
+      # Indirizzo con cui i client Plex raggiungono il server da fuori casa (Tailscale), per esempio https://homeserver.tuarete.ts.net:32400
+      ADVERTISE_IP: ${PLEX_ADVERTISE_IP:-}
+    volumes:
+      - ${DATA_DIR}/plex/config:/config
+      # le trascodifiche stanno in RAM (conta nel limite di memoria): niente scritture continue sulla SD del Raspberry
+      - type: tmpfs
+        target: /transcode
+        tmpfs:
+          size: 536870912
+      - ${DATA_DIR}/media:/media:ro
+    ports:
+      - "${PLEX_BIND_ADDR:-127.0.0.1}:32400:32400"   # 127.0.0.1 = solo dal server; in LAN metti l'IP del server (docs/plex.md)
+    networks:
+      - media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:32400/identity >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     labels:
       - autoheal=true
     restart: unless-stopped
@@ -154,7 +297,7 @@ services:
   # Radarr, Sonarr e qBittorrent montano la stessa cartella media di Jellyfin con lo stesso percorso interno (/media):
   # e' quello che permette l'importazione dei file (e i collegamenti fisici, senza copie doppie).
   seerr:
-    image: ghcr.io/seerr-team/seerr:latest
+    image: ${SEERR_IMAGE:-ghcr.io/seerr-team/seerr:latest}
     container_name: seerr
     logging: *logging
     init: true
@@ -166,7 +309,9 @@ services:
     volumes:
       - ${DATA_DIR}/seerr/config:/app/config
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:5055:5055"
+      - "${LAN_BIND_ADDR:-${BIND_ADDR:-127.0.0.1}}:5055:5055"   # l'altra porta che puo' stare in LAN (LAN_BIND_ADDR)
+    networks:
+      - media
     depends_on:
       - jellyfin
     restart: unless-stopped
@@ -174,7 +319,7 @@ services:
   # Pulizia della libreria: crea in Jellyfin delle collezioni con i film e le serie che non guardi piu' e, passati i giorni
   # che scegli, li toglie da Radarr/Sonarr. Cancella solo quello che decidi tu nelle regole (docs/maintainerr.md).
   maintainerr:
-    image: maintainerr/maintainerr:latest
+    image: ${MAINTAINERR_IMAGE:-maintainerr/maintainerr:latest}
     container_name: maintainerr
     logging: *logging
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -185,7 +330,9 @@ services:
     volumes:
       - ${DATA_DIR}/maintainerr:/opt/data
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:6246:6246"
+      - "127.0.0.1:6246:6246"
+    networks:
+      - media
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6246 || exit 1"]
       interval: 30s
@@ -197,7 +344,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: ${QBITTORRENT_IMAGE:-lscr.io/linuxserver/qbittorrent:latest}
     container_name: qbittorrent
     logging: *logging
     environment:
@@ -209,13 +356,15 @@ services:
       - ${DATA_DIR}/qbittorrent/config:/config
       - ${DATA_DIR}/media:/media
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:8080:8080"
+      - "127.0.0.1:8080:8080"
       # La porta dei peer (6881) non e' pubblicata, come tutto il resto: nessuna porta aperta sul router.
       # I download funzionano lo stesso (connessioni in uscita), ma possono essere piu' lenti.
+    networks:
+      - arr   # contenuti non fidati: qui non vede Jellyfin, Vaultwarden, i database ne' il pannello
     restart: unless-stopped
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: ${PROWLARR_IMAGE:-lscr.io/linuxserver/prowlarr:latest}
     container_name: prowlarr
     logging: *logging
     environment:
@@ -225,7 +374,9 @@ services:
     volumes:
       - ${DATA_DIR}/prowlarr/config:/config
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:9696:9696"
+      - "127.0.0.1:9696:9696"
+    networks:
+      - arr
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1   # senza, gli indexer dietro Cloudflare davano "Resource temporarily unavailable" (rete IPv6 non funzionante)
     healthcheck:
@@ -239,7 +390,7 @@ services:
     restart: unless-stopped
 
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: ${RADARR_IMAGE:-lscr.io/linuxserver/radarr:latest}
     container_name: radarr
     logging: *logging
     environment:
@@ -250,7 +401,11 @@ services:
       - ${DATA_DIR}/radarr/config:/config
       - ${DATA_DIR}/media:/media
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:7878:7878"
+      - "127.0.0.1:7878:7878"
+    networks:
+      - arr      # qBittorrent, Prowlarr
+      - media    # Jellyfin (aggiornamento libreria), Seerr, Maintainerr
+      - notify   # ntfy
     depends_on:
       - qbittorrent
       - prowlarr
@@ -265,7 +420,7 @@ services:
     restart: unless-stopped
 
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: ${SONARR_IMAGE:-lscr.io/linuxserver/sonarr:latest}
     container_name: sonarr
     logging: *logging
     environment:
@@ -276,7 +431,11 @@ services:
       - ${DATA_DIR}/sonarr/config:/config
       - ${DATA_DIR}/media:/media
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:8989:8989"
+      - "127.0.0.1:8989:8989"
+    networks:
+      - arr
+      - media
+      - notify
     depends_on:
       - qbittorrent
       - prowlarr
@@ -292,7 +451,7 @@ services:
 
   # Sottotitoli automatici per Radarr e Sonarr (docs/bazarr.md). Stesso percorso /media degli altri: scrive i .srt accanto ai video.
   bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
+    image: ${BAZARR_IMAGE:-lscr.io/linuxserver/bazarr:latest}
     container_name: bazarr
     logging: *logging
     environment:
@@ -303,7 +462,9 @@ services:
       - ${DATA_DIR}/bazarr/config:/config
       - ${DATA_DIR}/media:/media
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:6767:6767"
+      - "127.0.0.1:6767:6767"
+    networks:
+      - arr
     depends_on:
       - radarr
       - sonarr
@@ -326,6 +487,8 @@ services:
       SONARR_API_KEY: ${SONARR_API_KEY:-}
     volumes:
       - ${DATA_DIR}/recyclarr/config:/config
+    networks:
+      - arr
     depends_on:
       - radarr
       - sonarr
@@ -341,6 +504,8 @@ services:
     environment:
       TZ: ${TZ}
       LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
+    networks:
+      - arr
     restart: unless-stopped
 
   # ---------- Vaultwarden ----------
@@ -348,7 +513,7 @@ services:
   # Unica porta pubblicata: 127.0.0.1:8222 in HTTP, per aprire il vault dal server stesso se Tailscale non funziona
   # (localhost e' un contesto sicuro per il browser). Volutamente non segue BIND_ADDR: in LAN sarebbe HTTP in chiaro.
   vaultwarden:
-    image: vaultwarden/server:latest
+    image: ${VAULTWARDEN_IMAGE:-vaultwarden/server:latest}
     container_name: vaultwarden
     logging: *logging
     oom_score_adj: -500
@@ -363,13 +528,15 @@ services:
       - "127.0.0.1:8222:80"
     volumes:
       - ${DATA_DIR}/vaultwarden:/data
+    networks:
+      - vault   # solo Tailscale (e Uptime Kuma) lo raggiungono: nessun servizio di download o di media lo vede
     labels:
       - autoheal=true
     restart: unless-stopped
 
   # ---------- Pi-hole ----------
   pihole:
-    image: pihole/pihole:latest
+    image: ${PIHOLE_IMAGE:-pihole/pihole:latest}
     container_name: pihole
     logging: *logging
     environment:
@@ -384,7 +551,7 @@ services:
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/udp"
       - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
     networks:
-      - default
+      - tools    # interfaccia web via Tailscale, aggiornamento delle liste
       - dns      # per parlare con Unbound (docs/unbound.md)
     labels:
       - autoheal=true
@@ -409,14 +576,18 @@ services:
   # ---------- Portainer: gestione grafica di Docker ----------
   # Si apre da Tailscale (https://<nome>.ts.net:9443) o dal server (https://localhost:9443, certificato autofirmato).
   # Monta il socket Docker come il backend del pannello: chi entra controlla la macchina. Per questo la porta e' sempre
-  # su 127.0.0.1 (come il pannello, ignora BIND_ADDR) e non va mai aperta in LAN.
+  # su 127.0.0.1 e non va mai aperta in LAN. Duplica in parte il pannello, quindi NON parte con `up`: si avvia solo quando serve
+  #   docker compose --profile admin-tools up -d portainer      (e si ferma con: docker compose stop portainer)
   # Il primo utente amministratore va creato entro 5 minuti dall'avvio, altrimenti: docker compose restart portainer
   portainer:
     image: portainer/portainer-ce:lts
     container_name: portainer
     logging: *logging
+    profiles: ["admin-tools"]
     ports:
       - "127.0.0.1:9443:9443"
+    networks:
+      - tools
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR}/portainer:/data
@@ -431,14 +602,24 @@ services:
     volumes:
       - ${DATA_DIR}/kuma:/app/data
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:3001:3001"
+      - "127.0.0.1:3001:3001"
+    # Controlla i servizi per nome (docs/uptime-kuma.md), quindi entra in tutte le reti tranne quella interna del database:
+    # e' il prezzo del monitoraggio. Non monta il socket Docker.
+    networks:
+      - panel
+      - photos
+      - media
+      - arr
+      - vault
+      - tools
+      - notify
     labels:
       - autoheal=true
     restart: unless-stopped
 
   # Notifiche push sul telefono (app ntfy). Accesso solo con utente e password: si crea con `ntfy user add` (docs/ntfy.md).
   ntfy:
-    image: binwiederhold/ntfy:latest
+    image: ${NTFY_IMAGE:-binwiederhier/ntfy:latest}
     container_name: ntfy
     logging: *logging
     command: serve
@@ -453,7 +634,49 @@ services:
     volumes:
       - ${DATA_DIR}/ntfy:/var/lib/ntfy
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:2586:80"
+      - "127.0.0.1:2586:80"
+    networks:
+      - notify
+    restart: unless-stopped
+
+  # Inoltra le notifiche di ntfy al tuo chat Telegram (docs/telegram.md). Solo in uscita: nessuna porta, nessun socket Docker, e non legge
+  # i messaggi che arrivano al bot. Non parte con `up` (profilo "telegram"): lo attiva ./src/scripts/telegram-setup.sh.
+  # I segreti (token del bot, token ntfy in SOLA LETTURA) stanno in data/telegram, montata in sola lettura.
+  ntfy-telegram:
+    image: ${TELEGRAM_BRIDGE_IMAGE:-python:3.12-alpine}
+    container_name: ntfy-telegram
+    profiles: ["telegram"]
+    logging: *logging
+    init: true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    command: ["python", "-I", "-u", "/app/ntfy-telegram.py"]
+    cpu_shares: 128
+    mem_limit: 64m
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ}
+      NTFY_URL: http://ntfy:80
+      NTFY_TOPIC: ${TELEGRAM_NTFY_TOPIC:-homeserver}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./src/telegram:/app:ro
+      - ${DATA_DIR}/telegram:/run/secrets:ro
+      - ${DATA_DIR}/telegram/state:/state
+    healthcheck:
+      # il ponte scrive un "battito" in /state/alive a ogni riga di ntfy (almeno una ogni 45 secondi)
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/state/alive')<180 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - autoheal=true
+    networks:
+      - notify
     restart: unless-stopped
 
   # ---------- Monitoraggio delle risorse (docs/beszel.md) ----------
@@ -461,7 +684,7 @@ services:
   # (nessuna porta in piu'). Il primo utente amministratore si crea nel hub, subito dopo l'avvio.
   # L'agente ha bisogno della chiave pubblica del hub (BESZEL_KEY): la scrive src/scripts/post-avvio.sh.
   beszel:
-    image: henrygd/beszel:latest
+    image: ${BESZEL_IMAGE:-henrygd/beszel:latest}
     container_name: beszel
     logging: *logging
     cpu_shares: 256
@@ -473,13 +696,18 @@ services:
       - ${DATA_DIR}/beszel/data:/beszel_data
       - ${DATA_DIR}/beszel/socket:/beszel_socket
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:8090:8090"
+      - "127.0.0.1:8090:8090"
+    networks:
+      - tools
     restart: unless-stopped
 
-  # Rete "host" per misurare le schede di rete vere del computer. Il socket Docker e' in sola lettura: serve a contare
-  # i container, ma chi lo controlla puo' leggere le variabili d'ambiente di tutti (come Diun).
+  # Rete "host" per misurare le schede di rete vere del computer. ECCEZIONE ai proxy: resta sul socket Docker. Il `:ro` limita
+  # il file, non le chiamate all'API (si possono comunque creare container): equivale a root, come Portainer e il backend.
+  # Non passa dal proxy perche' (1) in rete host non entra nelle reti interne dei proxy e andrebbe pubblicata una porta sul
+  # computer, e (2) con i proxy per socket sono segnalati scollegamenti dopo qualche ora (issue 11notes/docker-socket-proxy #10:
+  # proxy diverso, non verificato con questo). Da riprovare con docker-proxy-ro se serve toglierlo.
   beszel-agent:
-    image: henrygd/beszel-agent:latest
+    image: ${BESZEL_AGENT_IMAGE:-henrygd/beszel-agent:latest}
     container_name: beszel-agent
     logging: *logging
     network_mode: host
@@ -496,6 +724,89 @@ services:
       - beszel
     restart: unless-stopped
 
+  # ---------- Filtro del socket Docker per il backend (docs/security.md, sezione Socket Docker) ----------
+  # Il backend deve avviare/fermare i container del pannello, eseguire due comandi fissi (vaultwarden, tailscale) e lanciare il
+  # job di backup: un proxy che filtra solo per percorso dovrebbe lasciar passare "crea container", cioe' un accesso root al computer.
+  # Questo (src/docker-gate/gate.py) guarda anche il corpo delle richieste: immagine, montaggi e comandi del job sono fissi, gli exec
+  # sono due, start/stop valgono solo per i container elencati qui sotto. Prove: python3 -m pytest src/docker-gate/test_gate.py
+  # GATE_CONTAINERS deve coincidere con i container di SERVICES (src/backend/app/services.py): lo controlla check-config.py.
+  docker-gate:
+    image: ${DOCKER_GATE_IMAGE:-python:3.12-alpine}
+    container_name: docker-gate
+    logging: *logging
+    init: true
+    command: ["python", "-I", "-u", "/app/gate.py"]
+    cpu_shares: 128
+    mem_limit: 64m
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ}
+      GATE_CONTAINERS: "immich_server,immich_redis,immich_postgres,immich_machine_learning,jellyfin,seerr,maintainerr,gluetun,qbittorrent,prowlarr,radarr,sonarr,bazarr,flaresolverr,recyclarr,vaultwarden,pihole,unbound,uptime-kuma,ntfy,beszel,beszel-agent,portainer,docker-proxy-ro,docker-proxy-rw,diun,autoheal,ntfy-telegram,unmanic,tailscale,copyparty,syncthing,convertx,plex,romm,romm-db"
+      RESTIC_IMAGE: ${RESTIC_IMAGE:-restic/restic:latest}
+      RESTIC_REPO_DIR: ${RESTIC_REPO_DIR:-}
+      RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
+      HOST_DATA_DIR: ${DATA_DIR:?Percorsi non inizializzati - lancia ./src/scripts/start.sh oppure ./src/scripts/sync-env.sh}
+      HOST_PHOTOS_DIR: ${DATA_DIR}/photos
+    volumes:
+      - ./src/docker-gate:/app:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:2375/_ping', timeout=3).read() == b'OK' else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - autoheal=true
+    networks:
+      - dockerproxy_api
+    restart: unless-stopped
+
+  # ---------- Proxy del socket Docker (docs/security.md, sezione Socket Docker) ----------
+  # Diun e Autoheal non montano piu' il socket: parlano con questi due proxy su reti interne (senza accesso a Internet e senza
+  # altri servizi). Ogni proxy lascia passare solo le chiamate elencate; il resto (creare container, exec, volumi, reti...) e' rifiutato.
+  # Limite da conoscere: CONTAINERS=1 permette di leggere i dettagli dei container, comprese le variabili d'ambiente (e quindi
+  # eventuali password passate cosi'). Si toglie la scrittura, non la lettura.
+  docker-proxy-ro:   # Diun: elenca i container e le immagini in uso
+    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:latest}
+    container_name: docker-proxy-ro
+    logging: *logging
+    cpu_shares: 256
+    mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      POST: "0"          # sola lettura (GET/HEAD)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dockerproxy_ro
+    restart: unless-stopped
+
+  docker-proxy-rw:   # Autoheal: elenca i container e riavvia quelli "unhealthy"
+    image: ${DOCKER_PROXY_IMAGE:-tecnativa/docker-socket-proxy:latest}
+    container_name: docker-proxy-rw
+    logging: *logging
+    cpu_shares: 256
+    mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CONTAINERS: "1"
+      ALLOW_RESTARTS: "1"   # solo stop/restart/kill di un container; niente POST generico, quindi niente creazione/exec
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dockerproxy_rw
+    restart: unless-stopped
+
   # ---------- Utility: manutenzione (docs/manutenzione.md) ----------
   # Nel pannello sono un unico interruttore ("Manutenzione"): Diun e Autoheal pesano pochi MB e di solito restano accesi.
   # Diun NON aggiorna nulla: controlla i registri e ti manda una notifica ntfy quando esce una nuova versione di un'immagine.
@@ -507,6 +818,8 @@ services:
     command: serve
     cpu_shares: 256
     mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
     environment:
       TZ: ${TZ}
       LOG_LEVEL: info
@@ -515,35 +828,44 @@ services:
       DIUN_WATCH_JITTER: 30s
       DIUN_WATCH_FIRSTCHECKNOTIF: "false"   # al primo giro memorizza e basta, niente raffica di notifiche
       DIUN_PROVIDERS_DOCKER: "true"
+      DIUN_PROVIDERS_DOCKER_ENDPOINT: tcp://docker-proxy-ro:2375   # niente socket montato: passa dal proxy in sola lettura
       DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT: "true"   # tutte le immagini, tranne i container con l'etichetta diun.enable=false
       DIUN_NOTIF_NTFY_ENDPOINT: http://ntfy:80
       DIUN_NOTIF_NTFY_TOPIC: ${DIUN_NTFY_TOPIC:-homeserver}
-      # ntfy e' in deny-all: serve un utente con permesso di scrittura (docs/manutenzione.md)
-      DIUN_NOTIF_NTFY_USERNAME: ${DIUN_NTFY_USER:-}
-      DIUN_NOTIF_NTFY_PASSWORD: ${DIUN_NTFY_PASSWORD:-}
+      # ntfy e' in deny-all: Diun accetta solo un token di accesso, non utente e password (docs/manutenzione.md)
+      DIUN_NOTIF_NTFY_TOKEN: ${DIUN_NTFY_TOKEN:-}
     volumes:
       - ${DATA_DIR}/diun:/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dockerproxy_ro   # interna: solo il proxy
+      - notify           # ntfy e uscita verso i registri delle immagini
+    depends_on:
+      - docker-proxy-ro   # se Diun parte prima del proxy non si connette (diun issue 1225)
     restart: unless-stopped
 
   # Riavvia i container che Docker segna come "unhealthy". Agisce SOLO su quelli con l'etichetta autoheal=true
-  # (Jellyfin, Immich, Radarr, Sonarr, Prowlarr, Vaultwarden, Pi-hole, Uptime Kuma): un controllo di salute sbagliato su un
+  # (pannello, Jellyfin, Immich, Radarr, Sonarr, Prowlarr, Vaultwarden, Pi-hole, Uptime Kuma): un controllo di salute sbagliato su un
   # servizio senza etichetta non puo' farlo riavviare in continuazione. I container fermati dal pannello non li tocca.
-  # Monta il socket Docker in scrittura (come backend e Portainer): chi lo controlla controlla la macchina.
+  # Non monta il socket: riavvia i container tramite docker-proxy-rw, che permette solo elenco e riavvio.
   autoheal:
     image: willfarrell/autoheal:latest
     container_name: autoheal
     logging: *logging
     cpu_shares: 256
     mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
     environment:
       TZ: ${TZ}
       AUTOHEAL_CONTAINER_LABEL: autoheal
       AUTOHEAL_INTERVAL: "30"
       AUTOHEAL_START_PERIOD: "120"   # attesa dopo l'avvio di Autoheal prima del primo controllo
       AUTOHEAL_DEFAULT_STOP_TIMEOUT: "20"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      DOCKER_SOCK: tcp://docker-proxy-rw:2375
+    networks:
+      - dockerproxy_rw
+    depends_on:
+      - docker-proxy-rw
     restart: unless-stopped
 
   # ---------- Utility: compressione video (docs/compressione.md) ----------
@@ -568,11 +890,216 @@ services:
       - ${DATA_DIR}/unmanic/cache:/tmp/unmanic   # file temporanei della conversione (un file per worker)
       - ${DATA_DIR}/media:/media
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:8888:8888"
+      - "127.0.0.1:8888:8888"
+    networks:
+      - tools
     # Accelerazione hardware (Intel QuickSync / VAAPI): togli il commento SOLO se /dev/dri esiste sul server,
     # altrimenti Docker non avvia il container. Non c'e' in WSL ne' sul Raspberry Pi.
     # devices:
     #   - /dev/dri:/dev/dri
+    restart: unless-stopped
+
+  # ---------- Scambio file nella rete di casa (docs/scambio-file.md) ----------
+  # Copyparty: pagina web per caricare e scaricare file da telefono e PC (anche WebDAV). Condivide SOLO la cartella data/scambio,
+  # mai /media. Account e permessi stanno in data/copyparty/cfg (lo crea ./src/scripts/copyparty-setup.sh): senza quel file
+  # il container parte con la configurazione di serie, che lascia la cartella a chiunque, quindi lo script va lanciato PRIMA.
+  # Di serie la porta e' solo su 127.0.0.1 (da fuori casa: Tailscale, HTTPS). Per usarlo dalla LAN senza Tailscale imposta
+  # COPYPARTY_BIND_ADDR nel .env: in LAN il traffico e' HTTP, quindi password e file passano in chiaro sul Wi-Fi.
+  copyparty:
+    image: ${COPYPARTY_IMAGE:-copyparty/ac:latest}
+    container_name: copyparty
+    logging: *logging
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpu_shares: 512
+    mem_limit: ${COPYPARTY_MEM:-512m}
+    volumes:
+      - type: bind
+        source: ${DATA_DIR}/copyparty/cfg
+        target: /cfg
+        read_only: true
+        bind:
+          create_host_path: false   # se manca, errore chiaro invece di una cartella di root
+      - ${DATA_DIR}/copyparty/hist:/hist   # indice e miniature (hist: /hist nella configurazione)
+      - ${DATA_DIR}/scambio:/w
+    ports:
+      - "${COPYPARTY_BIND_ADDR:-127.0.0.1}:3923:3923"
+    networks:
+      - files
+    # L'immagine non ha curl e la radice risponde 403 senza permessi: basta controllare che la porta accetti connessioni
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 3923), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - autoheal=true
+    restart: unless-stopped
+
+  # ---------- Sincronizzazione file tra dispositivi (docs/syncthing.md) ----------
+  # Syncthing: sincronizza cartelle tra i tuoi dispositivi, cifrato e senza server centrale. Qui NON usa i server di scoperta
+  # ne' i relay pubblici (li spegne ./src/scripts/syncthing-setup.sh) e la porta di sincronizzazione 22000 non e' pubblicata
+  # sul computer: i dispositivi arrivano dal tailnet (tailscale/serve.json la inoltra come TCP puro).
+  syncthing:
+    image: ${SYNCTHING_IMAGE:-syncthing/syncthing:latest}
+    container_name: syncthing
+    logging: *logging
+    hostname: syncthing
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpu_shares: 256
+    mem_limit: ${SYNCTHING_MEM:-512m}
+    environment:
+      TZ: ${TZ}
+      STGUIADDRESS: 0.0.0.0:8384
+      STNODEFAULTFOLDER: "true"    # niente cartella "Sync" di esempio: le crei tu
+    volumes:
+      - ${DATA_DIR}/syncthing:/var/syncthing   # configurazione e identita' del dispositivo (config/)
+      - ${DATA_DIR}/sync:/sync                 # le cartelle sincronizzate (in Syncthing: /sync/<nome>)
+    ports:
+      - "127.0.0.1:8384:8384"
+    networks:
+      - sync
+    labels:
+      - autoheal=true   # l'immagine ha un suo controllo di salute
+    restart: unless-stopped
+
+  # ---------- Utility: convertitore di file (docs/convertx.md) ----------
+  # ConvertX: converte immagini, documenti, audio e video dal browser. Elabora file che non controlli con programmi (FFmpeg,
+  # ImageMagick...) che in passato hanno avuto falle: per questo sta su una rete INTERNA (nessun accesso a Internet, nessun
+  # altro servizio), senza porte sul computer (si apre solo da Tailscale), con tetti di CPU, RAM e processi, e non parte con `up`
+  # (profilo "convertx"): lo accendi quando serve, dal pannello o con `docker compose --profile convertx up -d convertx`.
+  convertx:
+    image: ${CONVERTX_IMAGE:-ghcr.io/c4illin/convertx:latest}
+    container_name: convertx
+    profiles: ["convertx"]
+    logging: *logging
+    user: "${PUID:-1000}:${PGID:-1000}"
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${CONVERTX_CPUS:-2}"
+    cpu_shares: 128
+    mem_limit: ${CONVERTX_MEM:-1g}
+    pids_limit: 256
+    oom_score_adj: 500
+    environment:
+      TZ: ${TZ}
+      # JWT_SECRET non e' impostato apposta: ConvertX ne genera uno casuale a ogni avvio (dopo un riavvio devi rifare il login).
+      # Impostarlo vuoto sarebbe peggio: una chiave vuota firmerebbe le sessioni.
+      ACCOUNT_REGISTRATION: "false"
+      ALLOW_UNAUTHENTICATED: "false"
+      HTTP_ALLOWED: "false"
+      AUTO_DELETE_EVERY_N_HOURS: "${CONVERTX_DELETE_HOURS:-24}"   # i file caricati e convertiti si cancellano da soli
+    volumes:
+      - ${DATA_DIR}/convertx:/app/data
+    networks:
+      - convert
+    restart: unless-stopped
+
+  # ---------- RomM: libreria di ROM (docs/romm.md) ----------
+  # Organizza le ROM dei giochi che possiedi, con copertine e metadati, e le fa giocare dal browser. Profilo "romm": non parte con `up`.
+  # Accendilo dal pannello o con `docker compose --profile romm up -d romm`. Due reti: "romm" (con Internet, per i metadati; solo lui e
+  # Tailscale) e "romm_db" (INTERNA: il database non esce su Internet e non lo vede nessun altro).
+  romm-db:
+    image: ${ROMM_DB_IMAGE:-mariadb:11}
+    container_name: romm-db
+    profiles: ["romm"]
+    logging: *logging
+    # MariaDB parte come root, sistema la sua cartella e passa all'utente mysql: servono CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1"
+    mem_limit: ${ROMM_DB_MEM:-512m}
+    pids_limit: 256
+    environment:
+      TZ: ${TZ}
+      MARIADB_ROOT_PASSWORD: ${ROMM_DB_ROOT_PASSWORD:?ROMM_DB_ROOT_PASSWORD manca nel .env - lancia ./src/scripts/sync-env.sh}
+      MARIADB_DATABASE: romm
+      MARIADB_USER: romm-user
+      MARIADB_PASSWORD: ${ROMM_DB_PASSWORD:?ROMM_DB_PASSWORD manca nel .env - lancia ./src/scripts/sync-env.sh}
+    volumes:
+      - ${DATA_DIR}/romm/db:/var/lib/mysql
+    networks:
+      - romm_db
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 30s
+      start_interval: 10s
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    labels:
+      - autoheal=true
+    restart: unless-stopped
+
+  romm:
+    image: ${ROMM_IMAGE:-rommapp/romm:latest}
+    container_name: romm
+    profiles: ["romm"]
+    logging: *logging
+    user: "${PUID:-1000}:${PGID:-1000}"
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "${ROMM_CPUS:-2}"
+    mem_limit: ${ROMM_MEM:-1g}
+    pids_limit: 512
+    environment:
+      TZ: ${TZ}
+      DB_HOST: romm-db
+      DB_NAME: romm
+      DB_USER: romm-user
+      DB_PASSWD: ${ROMM_DB_PASSWORD:?ROMM_DB_PASSWORD manca nel .env - lancia ./src/scripts/sync-env.sh}
+      ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY:?ROMM_AUTH_SECRET_KEY manca nel .env - lancia ./src/scripts/sync-env.sh}
+      # Fornitori di metadati: tutti facoltativi (docs/romm.md). Senza nessuno la scansione funziona, ma senza copertine e descrizioni.
+      IGDB_CLIENT_ID: ${ROMM_IGDB_CLIENT_ID:-}
+      IGDB_CLIENT_SECRET: ${ROMM_IGDB_CLIENT_SECRET:-}
+      SCREENSCRAPER_USER: ${ROMM_SCREENSCRAPER_USER:-}
+      SCREENSCRAPER_PASSWORD: ${ROMM_SCREENSCRAPER_PASSWORD:-}
+      RETROACHIEVEMENTS_API_KEY: ${ROMM_RETROACHIEVEMENTS_API_KEY:-}
+      STEAMGRIDDB_API_KEY: ${ROMM_STEAMGRIDDB_API_KEY:-}
+      HASHEOUS_API_ENABLED: "${ROMM_HASHEOUS:-true}"
+    volumes:
+      - ${DATA_DIR}/romm/resources:/romm/resources
+      - ${DATA_DIR}/romm/redis:/redis-data
+      - ${DATA_DIR}/romm/library:/romm/library
+      - ${DATA_DIR}/romm/assets:/romm/assets
+      - ${DATA_DIR}/romm/config:/romm/config
+    networks:
+      - romm
+      - romm_db
+    depends_on:
+      romm-db:
+        condition: service_healthy
+        restart: true
     restart: unless-stopped
 
   # ---------- Strumenti (non partono con `up`) ----------
@@ -585,9 +1112,46 @@ services:
       RESTIC_REPOSITORY: /repo
       RESTIC_PASSWORD_FILE: /run/restic-pass
     volumes:
-      - ${DATA_DIR}/backups/restic:/repo
+      # create_host_path: false = se il disco non e' collegato dà errore, invece di creare la cartella sul disco di sistema
+      - type: bind
+        source: ${RESTIC_REPO_DIR:-${DATA_DIR}/backups/restic}
+        target: /repo
+        bind:
+          create_host_path: false
       - ${RESTIC_PASSWORD_FILE:-/dev/null}:/run/restic-pass:ro
       - ${DATA_DIR}/restore:/restore
+
+  # Copia dell'archivio Restic fuori sede (docs/backup-remoto.md). Lo lancia ./src/scripts/backup-remoto.sh, non il pannello.
+  # L'archivio e' gia' cifrato da Restic: sul servizio remoto finiscono solo file cifrati. L'archivio e' montato in SOLA lettura
+  # (rclone non puo' modificare quello locale). Gira come root perche' i file li scrive Restic come root: DAC_OVERRIDE serve a
+  # leggerli e a scrivere la configurazione di rclone (data/rclone); tutte le altre capacita' sono tolte.
+  rclone:
+    image: ${RCLONE_IMAGE:-rclone/rclone:latest}
+    profiles: ["tools"]
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ}
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+      RCLONE_CACHE_DIR: /tmp
+    volumes:
+      - type: bind
+        source: ${RESTIC_REPO_DIR:-${DATA_DIR}/backups/restic}
+        target: /repo
+        read_only: true
+        bind:
+          create_host_path: false   # disco scollegato = errore, mai una cartella vuota da "sincronizzare"
+      - ${DATA_DIR}/rclone:/config/rclone
+    networks:
+      - backup_out
 
 # Rete privata tra Pi-hole e Unbound (indirizzo fisso: Pi-hole accetta come upstream solo un IP).
 # Se 10.89.53.0/28 coincide con una rete tua, cambia i tre indirizzi qui, in unbound/unbound.conf e in src/scripts/pihole-unbound.sh.
@@ -598,3 +1162,46 @@ networks:
     ipam:
       config:
         - subnet: 10.89.53.0/28
+
+  # Reti dei gruppi (docs/reti.md). Le subnet sono fisse (10.89.10-19.x) per non finire sulla rete di casa: senza, Docker le
+  # sceglie da solo e, dopo una quindicina di reti, comincia a usare 192.168.x.x. Se una coincide con una tua, cambiala qui.
+  panel:           # pannello (nginx + backend), Tailscale, Uptime Kuma
+    ipam: { config: [{ subnet: 10.89.10.0/27 }] }
+  photos:          # Immich (server + riconoscimento): ha accesso a Internet (modelli)
+    ipam: { config: [{ subnet: 10.89.11.0/27 }] }
+  immich_db:       # database e cache di Immich: INTERNA, nessun accesso a Internet ne' agli altri servizi
+    internal: true
+    ipam: { config: [{ subnet: 10.89.12.0/28 }] }
+  media:           # Jellyfin, Plex, Seerr, Maintainerr, Radarr, Sonarr
+    ipam: { config: [{ subnet: 10.89.13.0/27 }] }
+  arr:             # download: qBittorrent, Prowlarr, FlareSolverr, Bazarr, Recyclarr, Radarr, Sonarr
+    ipam: { config: [{ subnet: 10.89.14.0/27 }] }
+  vault:           # Vaultwarden
+    ipam: { config: [{ subnet: 10.89.15.0/28 }] }
+  tools:           # interfacce di amministrazione raggiunte da Tailscale: Pi-hole, Portainer, Unmanic, Beszel
+    ipam: { config: [{ subnet: 10.89.16.0/27 }] }
+  notify:          # ntfy e chi gli scrive: Radarr, Sonarr, Diun, Uptime Kuma; il ponte Telegram (ntfy-telegram) lo legge
+    ipam: { config: [{ subnet: 10.89.17.0/27 }] }
+  dockerproxy_ro:  # Diun <-> proxy in sola lettura: INTERNA
+    internal: true
+    ipam: { config: [{ subnet: 10.89.18.0/29 }] }
+  dockerproxy_rw:  # Autoheal <-> proxy con riavvio: INTERNA
+    internal: true
+    ipam: { config: [{ subnet: 10.89.19.0/29 }] }
+  dockerproxy_api: # backend <-> docker-gate: INTERNA
+    internal: true
+    ipam: { config: [{ subnet: 10.89.20.0/29 }] }
+  files:           # Copyparty (scambio file): solo lui e Tailscale
+    ipam: { config: [{ subnet: 10.89.21.0/29 }] }
+  sync:            # Syncthing: solo lui e Tailscale
+    ipam: { config: [{ subnet: 10.89.22.0/29 }] }
+  convert:         # ConvertX: INTERNA, elabora file non fidati e non deve uscire su Internet
+    internal: true
+    ipam: { config: [{ subnet: 10.89.23.0/29 }] }
+  romm:            # RomM: solo lui e Tailscale; esce su Internet per i metadati
+    ipam: { config: [{ subnet: 10.89.25.0/29 }] }
+  romm_db:         # database di RomM: INTERNA, solo RomM e il suo database
+    internal: true
+    ipam: { config: [{ subnet: 10.89.26.0/29 }] }
+  backup_out:      # rclone (copia fuori sede dell'archivio Restic): solo lui, serve l'uscita su Internet
+    ipam: { config: [{ subnet: 10.89.24.0/29 }] }

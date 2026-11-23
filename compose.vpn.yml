@@ -1,0 +1,74 @@
+# OPZIONALE: qBittorrent dietro una VPN WireGuard, con gluetun (docs/vpn.md).
+#
+# Cosa cambia: tutto il traffico di qBittorrent esce dal tunnel; se il tunnel cade, gluetun blocca tutto (kill switch) e
+# qBittorrent resta senza rete invece di scaricare con il tuo indirizzo. Prowlarr, FlareSolverr, Radarr e Sonarr NON passano
+# dalla VPN. Non cambia nulla altrove: gluetun prende l'alias di rete "qbittorrent", quindi Radarr, Sonarr e tailscale/serve.json
+# continuano a chiamare http://qbittorrent:8080.
+#
+# Si attiva con ./src/scripts/vpn-setup.sh (scrive le variabili nel .env e la riga COMPOSE_FILE), oppure a mano aggiungendo al .env:
+#   COMPOSE_FILE=compose.yaml:compose.override.yml:compose.vpn.yml
+# (se usi anche compose.tailscale-kernel.yml, elencalo dopo). Poi:  docker compose up -d
+# Si disattiva togliendo quella riga e rilanciando `docker compose up -d` (qBittorrent torna sulla rete `arr`).
+#
+# Serve Docker Compose 2.24 o piu' recente (le etichette !reset qui sotto). Serve /dev/net/tun sul computer (c'e' sul Raspberry;
+# in WSL dipende dal kernel). gluetun e' l'UNICO container del progetto con NET_ADMIN: e' il suo mestiere (firewall e tunnel) e
+# sta nella rete `arr`, dove vedono gia' tutto cio' che e' "non fidato" (docs/security.md).
+#
+# La chiave privata WireGuard NON sta nel .env ne' nelle variabili del container (si vedrebbe con `docker inspect`): sta in un
+# file con permessi 600 (WIREGUARD_KEY_FILE) montato come segreto.
+services:
+  gluetun:
+    image: ${GLUETUN_IMAGE:-qmcgaw/gluetun:latest}
+    container_name: gluetun
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ}
+      VPN_SERVICE_PROVIDER: custom   # vale per QUALSIASI provider che ti dia un file WireGuard (.conf): vedi docs/vpn.md
+      VPN_TYPE: wireguard
+      WIREGUARD_ADDRESSES: "${WIREGUARD_ADDRESSES:?Mancano le variabili della VPN - lancia ./src/scripts/vpn-setup.sh (docs/vpn.md)}"
+      WIREGUARD_PUBLIC_KEY: "${WIREGUARD_PUBLIC_KEY:?Manca WIREGUARD_PUBLIC_KEY - lancia ./src/scripts/vpn-setup.sh}"
+      WIREGUARD_ENDPOINT_IP: "${WIREGUARD_ENDPOINT_IP:?Manca WIREGUARD_ENDPOINT_IP - lancia ./src/scripts/vpn-setup.sh}"
+      WIREGUARD_ENDPOINT_PORT: ${WIREGUARD_ENDPOINT_PORT:-51820}
+      WIREGUARD_PRIVATE_KEY_SECRETFILE: /run/secrets/wireguard_private_key
+      # Porta del web di qBittorrent raggiungibile dalla rete `arr` (Radarr, Sonarr, Tailscale). Il traffico dei peer, invece, resta
+      # bloccato in ingresso: per ricevere connessioni serve la porta inoltrata dal provider (docs/vpn.md, "Porta inoltrata").
+      FIREWALL_INPUT_PORTS: "8080"
+      FIREWALL_OUTBOUND_SUBNETS: 10.89.14.0/27   # la subnet della rete `arr` (compose.yaml): cambiala insieme a quella
+    secrets:
+      - wireguard_private_key
+    volumes:
+      - ${DATA_DIR}/gluetun:/gluetun
+    ports:
+      # La porta del web di qBittorrent passa da qui: un container con network_mode non puo' pubblicare porte
+      - "127.0.0.1:8080:8080"
+    networks:
+      arr:
+        aliases:
+          - qbittorrent
+    # Il controllo di salute e' quello dell'immagine (tunnel attivo e raggiungibilita' verificata). NIENTE etichetta autoheal:
+    # un `docker restart` di gluetun lascerebbe qBittorrent attaccato a una rete che non esiste piu'; il tunnel lo ricolleghi
+    # gia' da solo, e per riavviare tutto usa il pannello (riavvia i due container nell'ordine giusto) o `docker compose up -d`.
+    restart: unless-stopped
+
+  qbittorrent:
+    network_mode: "service:gluetun"   # niente rete propria: usa quella di gluetun, cioe' il tunnel
+    networks: !reset []
+    ports: !reset []
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true   # se gluetun viene ricreato o riavviato da compose, riavvia anche qBittorrent
+
+secrets:
+  wireguard_private_key:
+    file: "${WIREGUARD_KEY_FILE:?Manca WIREGUARD_KEY_FILE - lancia ./src/scripts/vpn-setup.sh}"
