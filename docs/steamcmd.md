@@ -1,5 +1,7 @@
 # Download remoto con SteamCMD
 
+> Bozza di una funzionalità non attiva. Questo branch non registra le rotte `/api/steam/*` e non include il servizio SteamCMD nella configurazione Compose.
+
 ```
 pannello ──▶ backend ──docker.sock──▶ container one-shot "steamcmd_<appid>" ──▶ $STEAM_GAMES_DIR/<appid>/
 ```

@@ -119,15 +119,18 @@ def _act(sid: str, action: str):
     client = _client()
     for name in meta["containers"]:
         try:
-            c = client.containers.get(name)
-        except NotFound:
-            if name in meta.get("optional", ()):
-                continue   # compose.vpn.yml non attivo: niente gluetun, e va bene cosi'
-            profile = f"--profile {meta['compose_profile']} " if meta.get("compose_profile") else ""
-            raise HTTPException(
-                409, f"Container '{name}' non esiste: avvia prima con docker compose {profile}up -d"
-            )
-        getattr(c, action)()
+            try:
+                c = client.containers.get(name)
+            except NotFound:
+                if name in meta.get("optional", ()):
+                    continue   # compose.vpn.yml non attivo: niente gluetun, e va bene cosi'
+                profile = f"--profile {meta['compose_profile']} " if meta.get("compose_profile") else ""
+                raise HTTPException(
+                    409, f"Container '{name}' non esiste: avvia prima con docker compose {profile}up -d"
+                )
+            getattr(c, action)()
+        except DockerException as exc:
+            raise HTTPException(502, f"Operazione {action} non riuscita per {name}: {exc}") from exc
         desired.record([name], action)   # ricorda cosa hai spento di proposito (riapplica-stato.sh)
     return _service_status(_snapshot(client), sid)
 

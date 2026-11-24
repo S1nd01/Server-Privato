@@ -324,11 +324,12 @@ Le immagini usano spesso `latest`: leggi le note di rilascio prima di aggiornare
 
 ## API
 
-Il backend è FastAPI; se `API_TOKEN_HASH` è impostato ogni chiamata, tranne `health`, richiede l'header `X-API-Token`.
+Le rotte protette richiedono l'header `X-API-Token`. Con un token mancante o errato rispondono `401`. Se il server non ha configurato un token valido rispondono `503`.
 
 | Metodo | Path | Descrizione |
 |---|---|---|
 | GET | `/api/health` | stato del backend, sempre senza token |
+| GET | `/api/session` | verifica il token senza contattare Docker |
 | GET | `/api/services` · `/api/services/{id}` | stato dei gruppi di servizi (`immich`, `immich-ml`, `jellyfin`, `seerr`, `maintainerr`, `download`, `vaultwarden`, `pihole`, `uptime-kuma`, `ntfy`, `beszel`, `portainer`, `manutenzione`, `compressione`, `tailscale`) |
 | POST | `/api/services/{id}/start` · `stop` · `restart` | azione su un gruppo |
 | GET | `/api/modes` | le modalità del pannello (Risparmio, Normale) |
@@ -336,7 +337,9 @@ Il backend è FastAPI; se `API_TOKEN_HASH` è impostato ogni chiamata, tranne `h
 | GET | `/api/stats` | server (CPU, RAM, dischi, temperatura) e per servizio (CPU, RAM, uptime, salute, riavvii); segnala cartelle mancanti |
 | GET | `/api/tailscale/status` | stato Tailscale, indirizzo HTTPS, dispositivi |
 | GET | `/api/access` | elenco delle credenziali e comandi di recupero (nessun valore segreto) |
-| GET/POST | `/api/backup/status` · `/api/backup/jobs` · `/api/backup/snapshots` | backup Restic |
+| GET | `/api/backup/status` · `/api/backup/snapshots` | stato del backup e copie Restic |
+| GET | `/api/backup/jobs/current/logs?tail=60` | ultime righe del job Restic |
+| POST | `/api/backup/jobs` | avvia un job Restic |
 
 ## Struttura del progetto
 
