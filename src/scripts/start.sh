@@ -15,3 +15,7 @@ docker compose up -d --build --remove-orphans "$@"
 # Dati che esistono solo dopo il primo avvio (chiavi di Radarr/Sonarr per Recyclarr, chiave del hub Beszel).
 # Se qualcosa non e' ancora pronto lo dice senza fermarsi: si rilancia a mano con ./src/scripts/post-avvio.sh
 ./src/scripts/post-avvio.sh || echo "Il collegamento di Recyclarr e Beszel non e' riuscito: rilancia ./src/scripts/post-avvio.sh tra qualche minuto." >&2
+
+if [ "$#" -eq 0 ]; then
+  ./src/scripts/riapplica-stato.sh
+fi

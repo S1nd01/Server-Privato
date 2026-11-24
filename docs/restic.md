@@ -24,13 +24,13 @@ Poi collega il disco, montalo e lancia, col tuo utente e senza `sudo`:
 ./src/scripts/backup-disco.sh --locale              # torna all'archivio in data/backups/restic
 ```
 
-Lo script controlla che sia un disco diverso da quello dei dati e che si possa scrivere, crea sul disco la cartella `homeserver-restic` e il file marcatore `.homeserver-backup`, scrive `RESTIC_REPO_DIR`, `BACKUP_DISK_DIR` e `BACKUP_MOUNT_PARENT` nel `.env` e riavvia il backend. Se esiste già un archivio locale, ti chiede se copiarlo sul disco (non lo cancella). Per un disco nuovo usa ext4: `sudo chown $USER: /media/utente/BACKUP` se non è scrivibile.
+Lo script controlla che sia un disco diverso da quello dei dati e che si possa scrivere, crea sul disco la cartella `homeserver-restic` e il file marcatore `.homeserver-backup`, scrive `RESTIC_REPO_DIR`, `BACKUP_DISK_DIR` e `BACKUP_MOUNT_PARENT` nel `.env` e riavvia il backend e il filtro Docker con i nuovi percorsi. Se esiste già un archivio locale, ti chiede se copiarlo sul disco (non lo cancella). Per un disco nuovo usa ext4: `sudo chown $USER: /media/utente/BACKUP` se non è scrivibile.
 
 Nel pannello, sezione Backup: **Prepara l'archivio** (una volta sola) e **Esegui backup**. A lavoro finito: espelli il disco dal sistema e scollegalo.
 
 ## Cosa succede se il disco non è collegato
 
-Il disco si riconosce dal file `.homeserver-backup`, che esiste solo sul disco. Senza, il pannello rifiuta ogni operazione ("Il disco di backup non è collegato"). Il controllo serve perché Docker, davanti a un percorso inesistente, **lo crea sul disco di sistema**: senza il marcatore, un backup a disco scollegato riempirebbe l'SSD del server credendo di scrivere sul disco esterno. Per lo stesso motivo il servizio `restic` monta l'archivio con `create_host_path: false`.
+Il disco si riconosce dal file `.homeserver-backup`, che esiste solo sul disco. Senza, il pannello rifiuta ogni operazione ("Il disco di backup non è collegato"). Il controllo serve perché Docker, davanti a un percorso inesistente, **lo crea sul disco di sistema**: senza il marcatore, un backup a disco scollegato riempirebbe l'SSD del server credendo di scrivere sul disco esterno. Anche Docker rifiuta il montaggio se la directory dell’archivio manca, sia dal pannello sia dal servizio `restic` usato da terminale.
 
 Il backend vede il disco anche se lo colleghi dopo l'avvio perché monta la cartella madre (`BACKUP_MOUNT_PARENT`, per esempio `/media/utente`) in sola lettura con propagazione `rslave`. Serve che la radice dell'host sia condivisa. Se `docker compose up` risponde *not a shared or slave mount*:
 
@@ -55,7 +55,7 @@ Anche la pulizia è manuale (pulsante **Pulisci copie vecchie**): tiene 7 copie 
 `beszel`, `unmanic` (solo le impostazioni), `panel` (stato del pannello) e `tailscale` (l'identità del server: ripristinarla mantiene lo stesso
 indirizzo `.ts.net`), e `photos`. Portainer e Diun non sono inclusi. Film, serie e download in `media/` **non** sono inclusi.
 Miniature, video convertiti, registri e locandine di Radarr/Sonarr sono esclusi (si rigenerano).
-Prima del backup Vaultwarden viene copiato in modo coerente; se non riesce, il backup parte comunque e te lo dice.
+Prima del backup Vaultwarden viene copiato in modo coerente; se non riesce, il backup parte comunque. Il pannello conserva l’avviso dell’ultimo tentativo di backup e segnala anche quando non trova alcun dump di Immich.
 
 **Verifica una volta** in Immich (Amministrazione, Impostazioni, *Backup del database*) che i dump automatici siano attivi: il database non viene copiato mentre è in uso.
 

@@ -1,0 +1,7 @@
+# Solo hero/ e frontend/ servono alla build del frontend
+backend
+scripts
+telegram
+Dockerfile*
+hero/node_modules
+hero/dist

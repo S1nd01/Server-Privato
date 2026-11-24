@@ -341,6 +341,15 @@ def _vaultwarden_dump(client) -> list[str]:
     return []
 
 
+def _immich_dump_warnings() -> list[str]:
+    uploads = LOCAL_DATA / "immich/upload"
+    if not uploads.is_dir():
+        return []
+    if any(p.is_file() for p in (uploads / "backups").glob("*.sql.gz")):
+        return []
+    return ["Immich: nessun dump del database trovato. Verifica i backup automatici in Immich."]
+
+
 def start_job(client, kind: str) -> dict:
     cfg = _cfg()
     with _lock:
@@ -366,7 +375,7 @@ def start_job(client, kind: str) -> dict:
             if not paths and not photos:
                 raise HTTPException(409, "Non c'è ancora nulla da salvare: avvia prima almeno un servizio")
             with_data = bool(paths)
-            warnings = _vaultwarden_dump(client)
+            warnings = _vaultwarden_dump(client) + _immich_dump_warnings()
             cmd = build_backup_cmd(paths, photos)
         elif kind == "forget":
             cmd = build_forget_cmd(cfg["keep"])
@@ -380,17 +389,24 @@ def start_job(client, kind: str) -> dict:
             vols[cfg["photos"]] = {"bind": "/photos", "mode": "ro"}
 
         try:
-            client.containers.get(JOB_NAME).remove(force=True)
+            previous = client.containers.get(JOB_NAME)
+            _remember_last(_job_info(previous))
+            previous.remove(force=True)
         except NotFound:
             pass
         try:
             c = client.containers.run(
                 cfg["image"], cmd, name=JOB_NAME, detach=True,
                 labels={LABEL: "1", "hs.kind": kind}, environment=_env(), volumes=vols,
+                use_config_proxy=False,
                 cpu_shares=256,  # priorita' bassa: se il server e' occupato i servizi passano avanti (default 1024)
             )
         except APIError as exc:
             raise HTTPException(502, f"Docker: {exc.explanation or exc}")
+        if kind == "backup":
+            state = _load_state()
+            state["last_job_warnings"] = warnings
+            _save_state(state)
         return {**_job_info(c), "warnings": warnings}
 
 
@@ -422,7 +438,9 @@ def status():
         job = _current_job(get_client())
     except Exception:  # noqa: BLE001 - lo stato si mostra anche se Docker non risponde
         pass
-    _remember_last(job)
+    with _lock:
+        _remember_last(job)
+        warnings = _load_state().get("last_job_warnings", [])
     disk = _disk_info(cfg)
     usable = not problems and (disk is None or disk["present"])
     sources = [{"path": s, "exists": (LOCAL_DATA / s).exists()} for s in SOURCES]
@@ -444,6 +462,7 @@ def status():
         "stale": bool(cfg["warn_days"] and not problems and initialized is not False and (age is None or age >= cfg["warn_days"])),
         "warn_days": cfg["warn_days"],
         "job": job,
+        "last_job_warnings": warnings,
         "sources": sources,
     }
 
@@ -486,13 +505,14 @@ def snapshots():
     if not _initialized(cfg):
         raise HTTPException(409, "Prepara prima l'archivio")
     client = get_client()
-    if _current_job(client) and _current_job(client)["status"] == "running":
+    job = _current_job(client)
+    if job and job["status"] == "running":
         raise HTTPException(409, "C'è un'operazione in corso: riprova quando finisce")
     try:
         out = client.containers.run(
             cfg["image"], ["-r", "/repo", "snapshots", "--json", "--host", HOST_TAG],
             detach=False, remove=True, stdout=True, stderr=False,
-            environment=_env(), volumes=_base_volumes(cfg),
+            environment=_env(), volumes=_base_volumes(cfg), use_config_proxy=False,
         )
     except ContainerError as exc:
         raise HTTPException(502, f"restic: {_text(exc.stderr)[-300:] or 'errore sconosciuto'}")

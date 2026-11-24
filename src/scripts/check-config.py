@@ -105,6 +105,11 @@ def shares(a, b):
     return None if ka is None or kb is None else bool((nets_of(ka) & nets_of(kb)) - {"<host>"})
 
 
+def no_host_path(volume):
+    # Compose v2 puo' omettere false dalla configurazione normalizzata.
+    return volume.get("type") == "bind" and not (volume.get("bind") or {}).get("create_host_path", False)
+
+
 def under(path, bases):
     return any(path == b or path.startswith(b + "/") for b in bases)
 
@@ -335,7 +340,7 @@ if pm:
     check((pm[0].get("bind") or {}).get("propagation") == "rslave", "/data/backup-parent deve avere bind.propagation: rslave (altrimenti il backend non vede il disco collegato dopo l'avvio)")
 rs = svc.get(by_name.get("restic") or "restic", {})
 rv = [v for v in rs.get("volumes") or [] if v.get("target") == "/repo"]
-check(len(rv) == 1 and (rv[0].get("bind") or {}).get("create_host_path") is False, "il servizio restic deve montare /repo con create_host_path: false (un disco scollegato non deve far creare la cartella sul disco di sistema)")
+check(len(rv) == 1 and no_host_path(rv[0]), "il servizio restic deve montare /repo con create_host_path: false (un disco scollegato non deve far creare la cartella sul disco di sistema)")
 # ogni rotta di scrittura del backup richiede l'amministratore
 tree = ast.parse(bk_src)
 for fn in ast.walk(tree):
@@ -369,7 +374,7 @@ if cp:
     vols = {v.get("target"): v for v in cp.get("volumes") or []}
     check(set(vols) == {"/cfg", "/hist", "/w"}, f"copyparty: monta {sorted(vols)}, attesi /cfg, /hist, /w")
     check(vols.get("/w", {}).get("source", "").endswith("/scambio"), "copyparty: /w deve essere data/scambio (mai /media ne' altre cartelle)")
-    check(vols.get("/cfg", {}).get("read_only") is True and (vols.get("/cfg", {}).get("bind") or {}).get("create_host_path") is False,
+    check(vols.get("/cfg", {}).get("read_only") is True and no_host_path(vols.get("/cfg", {})),
           "copyparty: /cfg deve essere in sola lettura e con create_host_path: false (senza configurazione non deve partire con la cartella aperta a tutti)")
     check(nets_of("copyparty") == {"files"}, f"copyparty deve stare solo nella rete files, sta in {sorted(nets_of('copyparty'))}")
     check(cp.get("user"), "copyparty: deve girare con un utente non root (user:)")
@@ -433,7 +438,7 @@ if rc:
     check(rc.get("read_only") is True and "ALL" in (rc.get("cap_drop") or []) and (rc.get("cap_add") or []) == ["DAC_OVERRIDE"],
           "rclone: read_only, cap_drop ALL e come unica capacita' DAC_OVERRIDE")
     rrepo = [v for v in rc.get("volumes") or [] if v.get("target") == "/repo"]
-    check(len(rrepo) == 1 and rrepo[0].get("read_only") is True and (rrepo[0].get("bind") or {}).get("create_host_path") is False,
+    check(len(rrepo) == 1 and rrepo[0].get("read_only") is True and no_host_path(rrepo[0]),
           "rclone: /repo deve essere in sola lettura e con create_host_path: false (rclone non deve poter modificare l'archivio locale)")
     check(nets_of("rclone") == {"backup_out"}, f"rclone deve stare solo nella rete backup_out, sta in {sorted(nets_of('rclone'))}")
     check(not rc.get("ports"), "rclone non deve pubblicare porte")

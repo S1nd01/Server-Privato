@@ -5,23 +5,16 @@ scarica contenuti non fidati) poteva raggiungere Vaultwarden, i database e il pa
 
 | Rete | Chi c'è | Perché | Internet |
 |---|---|---|---|
-| `panel` | frontend, backend (anche in `dockerproxy_api`), Tailscale, Uptime Kuma | il pannello e chi lo pubblica o lo controlla | sì |
+| `panel` | frontend, backend, Tailscale, Uptime Kuma | il pannello e chi lo pubblica o lo controlla | sì |
 | `photos` | Immich server, riconoscimento, Tailscale, Uptime Kuma | il riconoscimento scarica i modelli | sì |
 | `immich_db` | Immich server, Postgres, Redis | il database non parla con nessun altro | **no** (interna) |
-| `media` | Jellyfin, Plex (opzionale), Seerr, Maintainerr, Radarr, Sonarr, Tailscale, Uptime Kuma | si chiamano tra loro (richieste, libreria, pulizia) | sì |
-| `arr` | qBittorrent, Prowlarr, FlareSolverr, Bazarr, Recyclarr, Radarr, Sonarr, Tailscale, Uptime Kuma | i download e chi li coordina. Con la VPN ([vpn.md](vpn.md)) qBittorrent non ha rete propria: usa quella di gluetun, che sta qui con l'alias `qbittorrent` | sì |
+| `media` | Jellyfin, Seerr, Maintainerr, Radarr, Sonarr, Tailscale, Uptime Kuma | si chiamano tra loro (richieste, libreria, pulizia) | sì |
+| `arr` | qBittorrent, Prowlarr, FlareSolverr, Bazarr, Recyclarr, Radarr, Sonarr, Tailscale, Uptime Kuma | i download e chi li coordina | sì |
 | `vault` | Vaultwarden, Tailscale, Uptime Kuma | solo chi lo pubblica e lo controlla | sì |
 | `tools` | Pi-hole, Portainer, Unmanic, Beszel, Tailscale, Uptime Kuma | interfacce di amministrazione raggiunte da Tailscale | sì |
 | `notify` | ntfy, Radarr, Sonarr, Diun, Tailscale, Uptime Kuma, ntfy-telegram | chi scrive le notifiche (e il ponte Telegram, che le legge) | sì |
-| `dockerproxy_api` | backend, `docker-gate` | il backend comanda Docker solo attraverso il filtro | **no** (interna) |
 | `dockerproxy_ro` | Diun, `docker-proxy-ro` | Diun legge container e immagini | **no** (interna) |
 | `dockerproxy_rw` | Autoheal, `docker-proxy-rw` | Autoheal riavvia i container | **no** (interna) |
-| `files` | Copyparty, Tailscale | lo scambio file ([scambio-file.md](scambio-file.md)) | sì |
-| `sync` | Syncthing, Tailscale | la sincronizzazione ([syncthing.md](syncthing.md)) | sì |
-| `convert` | ConvertX, Tailscale | elabora file non fidati ([convertx.md](convertx.md)) | **no** (interna) |
-| `romm` | RomM, Tailscale | libreria di ROM; esce su Internet per i metadati ([romm.md](romm.md)) | sì |
-| `romm_db` | RomM, romm-db | database MariaDB di RomM | **no** (interna) |
-| `backup_out` | rclone | la copia fuori sede dell'archivio ([backup-remoto.md](backup-remoto.md)); serve solo l'uscita | sì |
 | `homeserver_dns` | Pi-hole, Unbound | DNS ricorsivo (invariata) | sì |
 
 Radarr e Sonarr sono su tre reti perché fanno da ponte: parlano con i download (`arr`), con Jellyfin e Seerr (`media`) e con ntfy (`notify`).

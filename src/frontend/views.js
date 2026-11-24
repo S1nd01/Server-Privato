@@ -356,7 +356,7 @@ export function backup(root, ctx) {
       ];
     }
     const running = st.job && st.job.result === "running";
-    const mk = (label, kind, cls = "btn") => h("button", { class: cls, disabled: running, onclick: (e) => start(e.currentTarget, kind) }, label);
+    const mk = (label, kind, cls = "btn") => h("button", { class: cls, disabled: running || st.disk?.present === false, onclick: (e) => start(e.currentTarget, kind) }, label);
     const actions = !st.initialized
       ? [mk("Prepara l'archivio", "init", "btn primary")]
       : [mk("Esegui backup ora", "backup", "btn primary"), mk("Controlla integrità", "check"),
@@ -366,10 +366,12 @@ export function backup(root, ctx) {
            : h("button", { class: "btn", disabled: running, onclick: () => { confirming = true; update(); } }, "Pulisci vecchie copie")];
     return [
       h("dl", { class: "facts" },
-        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.initialized ? (st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : "ancora nessuna") : "archivio da preparare")),
+        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.initialized ? (st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : "ancora nessuna") : st.disk?.present === false ? "disco scollegato" : "archivio da preparare")),
         h("div", {}, h("dt", {}, "Automatico"), h("dd", {}, st.schedule ? `ogni giorno alle ${st.schedule}` : "disattivato")),
         h("div", {}, h("dt", {}, "Dove"), h("dd", {}, st.repo || "")),
         h("div", {}, h("dt", {}, "Cosa si salva"), h("dd", {}, st.sources.map((s) => s.path + (s.exists ? "" : " (non trovata)")).join(", ")))),
+      ...(st.disk?.present === false ? [h("p", { class: "hint" }, "Collega il disco di backup per avviare un'operazione.")] : []),
+      ...(st.last_job_warnings || []).map((w) => h("p", { class: "notice", "data-kind": "warn" }, w)),
       h("div", { class: "actions wrap" }, actions),
     ];
   }

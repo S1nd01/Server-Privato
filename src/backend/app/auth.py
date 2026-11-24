@@ -28,7 +28,7 @@ _fails: dict[str, deque] = defaultdict(deque)
 
 
 def _expected_digest() -> str | None:
-    """None = autenticazione disattivata. Configurazione non valida => errore (si chiude, non si apre)."""
+    """None = token non configurato. Configurazione non valida => errore (si chiude, non si apre)."""
     configured = os.environ.get("API_TOKEN_HASH", "").strip()
     if configured:
         algo, _, digest = configured.partition(":")
@@ -51,7 +51,7 @@ def require_token(request: Request) -> None:
         return
     expected = _expected_digest()
     if expected is None:
-        return
+        raise HTTPException(503, "Token non configurato: esegui src/scripts/gen-api-token.sh")
 
     given = request.headers.get("x-api-token", "")
     ok = bool(TOKEN_RE.fullmatch(given)) and hmac.compare_digest(
@@ -69,3 +69,7 @@ def require_token(request: Request) -> None:
         raise HTTPException(429, "Troppi tentativi, riprova tra un minuto", headers={"Retry-After": "60"})
     recent.append(now)
     raise HTTPException(401, "Token mancante o errato")
+
+
+# Con un token unico, ogni sessione autenticata ha i permessi amministrativi.
+require_admin = require_token

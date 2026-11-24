@@ -335,14 +335,14 @@ def test_reale_job_di_backup_come_fa_il_backend(real):
     env = {"RESTIC_PASSWORD_FILE": "/run/restic-pass", "RESTIC_CACHE_DIR": "/cache", "TZ": "Europe/Rome", "GOMAXPROCS": "2"}
     # come backup.start_job
     c = client.containers.run(IMG_REAL, ["-r", "/repo", "backup", "/source"], name="restic_job", detach=True,
-                              labels={"hs.restic": "1", "hs.kind": "backup"}, environment=env, volumes=vols, cpu_shares=256)
+                              labels={"hs.restic": "1", "hs.kind": "backup"}, environment=env, volumes=vols, cpu_shares=256, use_config_proxy=False)
     c.wait(timeout=30)
     assert "restic -r /repo backup /source" in client.containers.get("restic_job").logs(tail=20).decode()
     assert client.containers.list(filters={"label": "hs.restic", "status": "running"}) == []
     client.containers.get("restic_job").remove(force=True)
     # come backup.snapshots (non detach, remove=True)
     out = client.containers.run(IMG_REAL, ["-r", "/repo", "snapshots", "--json"], detach=False, remove=True, stdout=True,
-                                stderr=False, environment=env, volumes={k: v for k, v in vols.items() if v["bind"] in ("/repo", "/run/restic-pass", "/cache")})
+                                stderr=False, environment=env, use_config_proxy=False, volumes={k: v for k, v in vols.items() if v["bind"] in ("/repo", "/run/restic-pass", "/cache")})
     assert b"restic -r /repo snapshots --json" in out and b"segreto" in out
     # tentativi di evasione tramite l'SDK
     for kwargs in (

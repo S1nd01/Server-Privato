@@ -108,16 +108,16 @@ export async function raw(path, opts = {}) {
 export const api = async (path, opts) => (await raw(path, opts)).json();
 
 // Una sola richiesta di prova PRIMA di tutte le altre (più richieste senza token farebbero scattare il limite dei tentativi).
-// Ritorna "ok" | "token" (serve il token) | "locked" (troppi tentativi) | "offline".
+// Ritorna "ok" | "token" (serve il token) | "locked" | "config" | "offline".
 export async function probe() {
   try {
-    await api("/services");
+    await api("/session");
     return "ok";
   } catch (e) {
     if (e.status === 401) return "token";
     if (e.status === 429) return "locked";
-    if (e.status === 0) return "offline";
-    return "ok"; // altri errori (es. Docker spento) li mostrano le sezioni
+    if (e.status === 503) return "config";
+    return "offline";
   }
 }
 

@@ -253,7 +253,8 @@ class Gate:
             raise Deny("create: rete non ammessa")
         if not isinstance(hc.get("CpuShares", 0), int) or isinstance(hc.get("CpuShares"), bool):
             raise Deny("create: CpuShares non valido")
-        for b in hc.get("Binds") or []:
+        mounts = []
+        for b in hc.pop("Binds", None) or []:
             if not isinstance(b, str):
                 raise Deny("create: bind non valido")
             bits = b.split(":")
@@ -262,6 +263,14 @@ class Gate:
             src, target, mode = bits
             if target not in self.cfg.binds or self.cfg.binds[target] != (src, mode):
                 raise Deny(f"create: montaggio non ammesso: {b}")
+            # Docker crea directory mancanti con Binds. Mounts fallisce per
+            # i bind assenti, anche se il disco sparisce dopo il controllo.
+            mounts.append({
+                "Type": "bind" if src.startswith("/") else "volume",
+                "Source": src, "Target": target, "ReadOnly": mode == "ro",
+            })
+        if mounts:
+            hc["Mounts"] = mounts
         data["Labels"] = {**labels, GATE_LABEL: "1"}
         return json.dumps(data).encode()
 

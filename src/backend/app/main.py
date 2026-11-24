@@ -84,6 +84,11 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/session")
+def session():
+    return {"ok": True}
+
+
 @app.get("/api/services")
 def list_services():
     states = _snapshot(_client())

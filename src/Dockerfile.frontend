@@ -1,0 +1,17 @@
+# Frontend del pannello: nginx con la PWA statica (src/frontend) e, in /hero, la schermata iniziale in React (src/hero), compilata qui.
+# Contesto di build: ./src (vedi compose.yaml). Sul Raspberry serve un sistema a 64 bit: node:alpine e nginx:alpine hanno entrambe l'immagine arm64.
+ARG NODE_IMAGE=node:22-alpine
+ARG NGINX_IMAGE=nginx:alpine
+
+FROM ${NODE_IMAGE} AS hero
+WORKDIR /hero
+# prima solo i file delle dipendenze: finche' non cambiano, `npm ci` resta in cache
+COPY hero/package.json hero/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY hero/ ./
+RUN npm run build
+
+FROM ${NGINX_IMAGE}
+COPY frontend/ /usr/share/nginx/html/
+COPY --from=hero /hero/dist/ /usr/share/nginx/html/hero/
+RUN chmod -R a+rX /usr/share/nginx/html

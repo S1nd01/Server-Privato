@@ -13,7 +13,10 @@ Tutto il resto (Jellyfin, Vaultwarden, Pi-hole, Tailscale, Manutenzione, Compres
 ## Da sapere
 
 - **Resta anche dopo un riavvio.** I container fermati dal pannello restano fermi anche se il server si riaccende (`restart: unless-stopped`).
-  Attenzione però a `docker compose up -d`: ricrea e riavvia **tutto** quello che è nel compose, anche ciò che avevi spento. Dopo un aggiornamento, riapplica Risparmio dal pannello.
+  Attenzione però a `docker compose up -d`: ricrea e riavvia **tutto** quello che è nel compose, anche ciò che avevi spento.
+  Il pannello ricorda cosa hai fermato (`data/panel/stopped.txt`): `./src/scripts/start.sh` lo rimette spento da solo; dopo un `up` fatto a mano
+  lancia `./src/scripts/riapplica-stato.sh` (con `--prova` mostra cosa fermerebbe, senza fermare nulla).
+  Vale solo per ciò che passa dal pannello: un container fermato con `docker stop` o da Portainer non viene ricordato.
 - **Immich spento = niente backup foto dal telefono.** L'app aspetta e riprova quando lo riaccendi. Se vuoi risparmiare ma continuare a ricevere le foto, spegni solo *Immich, riconoscimento* dal suo interruttore.
 - **Uptime Kuma** segnalerà come "giù" i servizi spenti, se li monitora: metti in pausa quei monitor o accetta gli avvisi.
 - **I download in corso si interrompono** (qBittorrent riprende da dove era arrivato quando lo riaccendi).
