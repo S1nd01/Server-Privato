@@ -181,6 +181,8 @@ def stream(topics: str, ntfy_token: str, since: str):
     url = f"{NTFY_URL}/{urllib.parse.quote(topics, safe=',')}/json?since={urllib.parse.quote(since)}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {ntfy_token}"})
     with urllib.request.urlopen(req, timeout=READ_TIMEOUT) as r:
+        log(f"Connesso a ntfy (argomenti: {topics}, da: {since})")
+        beat()
         for raw in r:
             beat()
             raw = raw.strip()
@@ -214,7 +216,6 @@ def forward(ev: dict, tg: Telegram, lim: Limiter) -> None:
 def run_once(topics: str, ntfy_token: str, tg: Telegram, lim: Limiter) -> None:
     cursor = load_cursor()
     since = cursor or str(int(time.time()))   # al primo avvio: solo i messaggi da adesso in poi
-    log(f"Connesso a ntfy (argomenti: {topics}, da: {since})")
     for ev in stream(topics, ntfy_token, since):
         if ev.get("event") != "message":
             continue
@@ -224,6 +225,11 @@ def run_once(topics: str, ntfy_token: str, tg: Telegram, lim: Limiter) -> None:
 
 
 def main() -> None:
+    if os.path.isdir(STATE_DIR):
+        try:
+            os.unlink(os.path.join(STATE_DIR, "alive"))
+        except FileNotFoundError:
+            pass
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     topics = os.environ.get("NTFY_TOPIC", "homeserver").strip() or "homeserver"
     if not chat_id.lstrip("-").isdigit():
@@ -235,7 +241,6 @@ def main() -> None:
     tg = Telegram(bot_token, chat_id)
     lim = Limiter(MAX_PER_MIN, MIN_GAP)
     backoff = 2.0
-    beat()
     while True:
         started = time.monotonic()
         try:
@@ -249,7 +254,6 @@ def main() -> None:
             log(f"ntfy non raggiungibile: {type(e).__name__}")
         # attesa crescente, ma riparte da capo se la connessione e' durata a lungo
         backoff = 2.0 if time.monotonic() - started > 60 else min(backoff * 2, 60)
-        beat()
         time.sleep(backoff)
 
 

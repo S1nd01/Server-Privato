@@ -375,6 +375,22 @@ class Processo(unittest.TestCase):
             if p.poll() is None:
                 p.kill()
 
+    def test_token_ntfy_rifiutato_non_rinnova_il_battito(self):
+        Path(self.secrets, "ntfy_token").write_text("tk_non_valido\n")
+        heartbeat = Path(self.state, "alive")
+        heartbeat.parent.mkdir()
+        heartbeat.touch()
+        process = self.start()
+        try:
+            self.assertTrue(self.wait_for(lambda: len(self.ntfy.requests) >= 2))
+            self.assertFalse(heartbeat.exists())
+            self.assertEqual(self.tg_srv.calls, [])
+        finally:
+            process.terminate()
+            output, _ = process.communicate(timeout=10)
+        self.assertIn("HTTP 401", output)
+        self.assertNotIn("Connesso a ntfy", output)
+
     def test_configurazione_incompleta(self):
         for over, frag in (({"TELEGRAM_CHAT_ID": ""}, "TELEGRAM_CHAT_ID"), ({"TELEGRAM_CHAT_ID": "abc"}, "TELEGRAM_CHAT_ID"),
                            ({"SECRETS_DIR": self.tmp.name}, "telegram_bot_token")):

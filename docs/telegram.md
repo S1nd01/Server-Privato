@@ -35,7 +35,7 @@ servizi ──► ntfy ──► ntfy-telegram ──► api.telegram.org ──
 
 Si può rilanciare: riusa ciò che esiste. `--da-capo` chiede di nuovo il token, rifà il chat ID e rigenera l'utente ntfy.
 
-Il ponte ha un profilo Compose a parte: `docker compose up` da solo non lo avvia, ma `./src/scripts/start.sh` lo riavvia se è già configurato. Dal pannello compare come «Notifiche Telegram» (gruppo utility).
+Il ponte ha un profilo Compose a parte: `docker compose up` da solo non lo avvia, ma `./src/scripts/start.sh` abilita il profilo negli avvii completi se trova il chat ID e i due file dei token. Dal pannello compare come «Notifiche Telegram» (gruppo utility).
 
 ## Configurazione
 
@@ -67,5 +67,5 @@ Il ponte ha un profilo Compose a parte: `docker compose up` da solo non lo avvia
 | `permission denied` sui segreti nel log | I file sono di root (script lanciato con `sudo`): `sudo chown -R "$USER": data/telegram` e rilancia lo script |
 | `ntfy ha risposto HTTP 401/403` | Il token ntfy è stato revocato o l'argomento è cambiato: `telegram-setup.sh --da-capo` |
 | `Telegram ha rifiutato il messaggio (HTTP 403)` | Hai bloccato il bot, o il chat ID è sbagliato: sbloccalo, scrivi `/start`, `--da-capo` |
-| Nessun messaggio ma il container è `healthy` | Controlla che il servizio mandi davvero a ntfy (argomento giusto) e `docker compose logs ntfy-telegram` |
+| Nessun messaggio ma il container è `healthy` | Il controllo di salute misura la connessione a ntfy. Per verificare anche la consegna a Telegram, usa il pulsante Test di Kuma. Controlla che il servizio mandi davvero a ntfy (argomento giusto) e `docker compose logs ntfy-telegram` |
 | Container `unhealthy` | Non vede più ntfy da 3 minuti; Autoheal lo riavvia. Se persiste, `docker compose logs ntfy ntfy-telegram` |

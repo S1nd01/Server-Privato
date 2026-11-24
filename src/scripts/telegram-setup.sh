@@ -131,16 +131,8 @@ else
 fi
 
 # --- 4. avvio ---------------------------------------------------------------------------------------------------
-docker compose --profile telegram up -d --force-recreate ntfy-telegram
-for _ in $(seq 1 15); do
-  if docker compose logs --no-log-prefix --tail 20 ntfy-telegram 2>/dev/null | grep -q "Connesso a ntfy"; then
-    echo "Ponte attivo."
-    echo
-    echo "Prova: docker compose exec ntfy ntfy publish -u IL_TUO_NOME $topics \"Prova\"   (il messaggio deve comparire anche su Telegram)"
-    echo "Telegram non e' cifrato end-to-end: i testi delle notifiche passano dai server di Telegram (docs/telegram.md)."
-    exit 0
-  fi
-  sleep 1
-done
-echo "Il ponte e' partito ma non risulta ancora connesso a ntfy. Guarda: docker compose logs ntfy-telegram" >&2
-exit 1
+if ! docker compose --profile telegram up -d --force-recreate --wait --wait-timeout 120 ntfy-telegram; then
+  die "Il ponte non risulta connesso a ntfy. Guarda: docker compose logs ntfy-telegram"
+fi
+echo "Ponte connesso a ntfy."
+echo "Prova: invia una notifica di test da Uptime Kuma verso l'argomento $topics e controlla il messaggio su Telegram."
