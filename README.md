@@ -352,7 +352,7 @@ Server-Privato/
 ├── setup-windows.bat     installazione automatica su Windows
 ├── src/
 │   ├── backend/          FastAPI: servizi Docker, statistiche, backup Restic, stato Tailscale, elenco accessi
-│   ├── frontend/         PWA statica (HTML, CSS, JavaScript)
+│   ├── frontend/         PWA React compilata con Vite
 │   ├── hero/             schermata iniziale in React (si compila nella build del frontend)
 │   ├── docker-gate/      filtro del socket Docker per il backend (gate.py) e le sue prove (test_gate.py)
 │   ├── Dockerfile.frontend   nginx + PWA + hero compilato

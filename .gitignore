@@ -3,3 +3,6 @@ data/
 __pycache__/
 backups/
 *.pyc
+
+/src/frontend/node_modules/
+/src/frontend/dist/

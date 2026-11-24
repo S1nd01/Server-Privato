@@ -5,3 +5,5 @@ telegram
 Dockerfile*
 hero/node_modules
 hero/dist
+frontend/node_modules
+frontend/dist

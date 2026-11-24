@@ -16,7 +16,7 @@ La pagina che si vede **prima dell'accesso**: barra in vetro sfocato, badge, tit
 
 `VIDEO_SRC` in `src/hero/src/config.js` punta a un flusso `.m3u8` di Mux. Dal browser parte quindi una richiesta verso `*.mux.com` a **ogni** apertura della schermata iniziale: Mux vede l'indirizzo IP di chi apre il pannello e quando lo fa. Per questo la CSP (`nginx/security-headers.conf`) ammette quell'host solo in `media-src` e `connect-src`, e nient'altro. Dettagli in [security.md](security.md#schermata-iniziale-e-video-esterno).
 
-Se il flusso non parte (offline, bloccato) lo sfondo resta nero e tutto il resto funziona. **Per non dipendere da un servizio esterno:** scarica un video, mettilo in `src/frontend/` (per esempio `sfondo.mp4`), imposta `VIDEO_SRC = "/sfondo.mp4"` (viene riprodotto senza `hls.js`), togli `https://*.mux.com` dalla CSP e ricostruisci. `check-config.py` verifica che `VIDEO_SRC` e CSP restino coerenti.
+Se il flusso non parte (offline, bloccato) lo sfondo resta nero e tutto il resto funziona. **Per non dipendere da un servizio esterno:** scarica un video, mettilo in `src/frontend/public/` (per esempio `sfondo.mp4`), imposta `VIDEO_SRC = "/sfondo.mp4"` (viene riprodotto senza `hls.js`), togli `https://*.mux.com` dalla CSP e ricostruisci. `check-config.py` verifica che `VIDEO_SRC` e CSP restino coerenti.
 
 Il testo bianco sta sopra il video senza velo scuro (scelta di progetto): la leggibilità dipende dal video. Se un fotogramma chiaro rende il titolo difficile da leggere, scegli un video più scuro.
 

@@ -274,7 +274,7 @@ if tg:
 begin("hero")
 hero_src = "".join(f.read_text() for f in sorted((ROOT / "src/hero/src").glob("*.jsx")))
 hero_code = re.sub(r"/\*.*?\*/|(?<!:)//[^\n]*", "", hero_src, flags=re.S)   # senza commenti: citare <nav> in un commento non e' usarlo
-panel_css = re.sub(r"/\*.*?\*/", "", (ROOT / "src/frontend/style.css").read_text(), flags=re.S)
+panel_css = re.sub(r"/\*.*?\*/", "", (ROOT / "src/frontend/src/styles.css").read_text(), flags=re.S)
 panel_classes = set(re.findall(r"\.([A-Za-z_][\w-]*)", panel_css))
 # classi usate nell'hero: ogni parola dentro className="..." o className={`...`}. Quelle con variante (md:block, hover:...) hanno un
 # nome diverso (`md\\:block`) e non possono scontrarsi con una classe del pannello: contano solo le altre.
@@ -282,7 +282,7 @@ used = set()
 for a, b in re.findall(r'className=(?:"([^"]*)"|\{`([^`]*)`\})', hero_code):
     used |= {t for t in f"{a} {b}".split() if t and ":" not in t and "$" not in t and "{" not in t}
 clash = sorted(used & panel_classes)
-check(not clash, f"classi usate sia dall'hero (Tailwind) sia da src/frontend/style.css: {clash}. Lo stile del pannello le applicherebbe all'hero (e' gia' successo con 'block': +2rem di margine)")
+check(not clash, f"classi usate sia dall'hero (Tailwind) sia da src/frontend/src/styles.css: {clash}. Lo stile del pannello le applicherebbe all'hero (e' gia' successo con 'block': +2rem di margine)")
 # elementi che style.css stila in modo globale: nell'hero si usano div con role, non questi tag
 for tag in ("nav", "main"):
     check(not re.search(rf"<{tag}[\s>]", hero_code), f"l'hero usa <{tag}>, che style.css stila in modo globale: usa <div role=\"{'navigation' if tag == 'nav' else 'main'}\">")
@@ -292,6 +292,10 @@ bld = fe.get("build") or {}
 check(bld.get("dockerfile") == "Dockerfile.frontend" and str(bld.get("context", "")).endswith("/src"), "il frontend deve costruirsi da src/Dockerfile.frontend (contesto ./src)")
 check(not any(v.get("target") == "/usr/share/nginx/html" for v in fe.get("volumes") or []), "src/frontend e' ancora montato su /usr/share/nginx/html e nasconderebbe l'hero compilato in /hero")
 df = (ROOT / "src/Dockerfile.frontend").read_text()
+check((ROOT / "src/frontend/package-lock.json").is_file() and
+      "COPY frontend/package.json frontend/package-lock.json" in df and
+      "COPY --from=dashboard /dashboard/dist/" in df,
+      "il frontend React deve essere compilato e copiato da dashboard/dist")
 check("COPY hero/package.json hero/package-lock.json" in df and "npm ci" in df and "/usr/share/nginx/html/hero/" in df, "src/Dockerfile.frontend: mancano `npm ci` con il lockfile o la copia della build in /hero")
 # CSP: il video esterno e' consentito solo dove serve, e senza aprire altro
 csp = re.search(r'Content-Security-Policy "([^"]*)"', (ROOT / "nginx/security-headers.conf").read_text())

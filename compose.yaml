@@ -21,7 +21,7 @@ x-logging: &logging
 services:
   # ---------- App (frontend + backend/API) ----------
   frontend:
-    # Si costruisce qui (src/Dockerfile.frontend): nginx con la PWA statica e la schermata iniziale in React, compilata durante la build.
+    # Si costruisce qui (src/Dockerfile.frontend): nginx con la PWA React e la schermata iniziale in React, compilata durante la build.
     # Dopo ogni modifica a src/frontend o src/hero: docker compose up -d --build frontend
     build:
       context: ./src

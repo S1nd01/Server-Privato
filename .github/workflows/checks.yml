@@ -20,7 +20,7 @@ jobs:
         run: |
           python src/scripts/check-config.py
           git ls-files -z 'src/scripts/*.sh' | xargs -0 -n1 bash -n
-          git ls-files -z 'src/frontend/*.js' | xargs -0 -n1 node --check
+          git ls-files -z 'src/frontend/src/*.js' 'src/frontend/public/*.js' | xargs -0 -n1 node --check
       - name: Build del pannello
         run: |
           docker build -f src/Dockerfile.frontend src

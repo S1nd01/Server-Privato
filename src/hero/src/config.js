@@ -2,7 +2,7 @@
 
 // Flusso HLS dello sfondo. Dal browser parte una richiesta verso *.mux.com a ogni apertura della schermata iniziale
 // (la CSP in nginx/security-headers.conf lo consente solo per media-src e connect-src). Per non dipendere da un servizio esterno:
-// scarica il video, mettilo in src/frontend/ e metti qui un percorso locale (es. "/sfondo.mp4": il VideoPlayer lo riproduce senza hls.js).
+// scarica il video, mettilo in src/frontend/public/ e metti qui un percorso locale (es. "/sfondo.mp4": il VideoPlayer lo riproduce senza hls.js).
 export const VIDEO_SRC = "https://stream.mux.com/9JXDljEVWYwWu01PUkAemafDugK89o01BR6zqJ3aS9u00A.m3u8";
 
 export const BRAND = "Homeserver";
