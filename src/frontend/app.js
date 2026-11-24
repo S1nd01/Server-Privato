@@ -28,20 +28,25 @@ let current = null; // { name, view }
 let timer = null;
 let running = false;
 
-function routeName() {
-  const n = location.hash.replace("#", "");
-  return VIEWS[n] ? n : "servizi";
+// #servizi, #backup... oppure #servizio/<id> (pagina Dettagli di un servizio: il resto dopo la barra e' il parametro)
+function route() {
+  const [n, ...rest] = location.hash.replace("#", "").split("/");
+  let param = "";
+  try { param = decodeURIComponent(rest.join("/")); } catch { /* indirizzo malformato: si ignora */ }
+  if (n === "servizio" && param) return { name: n, param };
+  return { name: VIEWS[n] && n !== "servizio" ? n : "servizi", param: "" };
 }
 
 async function show() {
-  const name = routeName();
-  if (current && current.name === name) return;
+  const { name, param } = route();
+  if (current && current.name === name && current.param === param) return;
   const root = $("view");
   root.replaceChildren();
-  current = { name, view: VIEWS[name](root, ctx) };
+  current = { name, param, view: VIEWS[name](root, ctx, param) };
   document.title = `${TITLES[name]} - Homeserver`;
+  const tab = name === "servizio" ? "servizi" : name;   // i Dettagli stanno sotto la scheda Servizi
   document.querySelectorAll("nav a").forEach((a) => {
-    const on = a.getAttribute("href") === "#" + name;
+    const on = a.getAttribute("href") === "#" + tab;
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
   window.scrollTo(0, 0);
@@ -63,7 +68,7 @@ function startApp() {
   // le LED dell'intestazione si aggiornano anche fuori dalla schermata Servizi
   timer = setInterval(async () => {
     if (document.hidden) return;
-    if (current && current.name !== "servizi") { try { setServices(await api("/services")); } catch { /* si vede nelle schermate */ } }
+    if (current && current.name !== "servizi" && current.name !== "servizio") { try { setServices(await api("/services")); } catch { /* si vede nelle schermate */ } }
     tick();
   }, POLL_MS);
 }
@@ -76,9 +81,41 @@ function stopApp() {
 }
 
 // ---- accesso con token ----
+// La schermata iniziale (React, src/hero) compare solo a chi non e' autenticato e solo la prima volta dopo l'apertura della pagina:
+// un token rifiutato o scaduto porta dritto al form. Se il modulo non si carica (build assente, rete) si va al form: l'accesso non dipende mai dall'hero.
+let heroDone = false;
+
 function showGate(message) {
   stopApp();
   $("app").hidden = true;
+  if (!message && !heroDone) { showHero(); return; }
+  openGate(message);
+}
+
+async function showHero() {
+  const root = $("hero-root");
+  $("gate").hidden = true;
+  try {
+    const { mountHero } = await import("/hero/hero.js");
+    const unmount = await mountHero(root, {
+      onEnter({ go, help } = {}) {
+        heroDone = true;
+        unmount();
+        root.hidden = true;
+        if (go) history.replaceState(null, "", "#" + go);   // la scheda che si apre dopo l'accesso
+        openGate("");
+        if (help) document.querySelector(".gate-help").open = true;
+      },
+    });
+    root.hidden = false;   // solo a montaggio finito (stile caricato): niente lampo di pagina vuota
+  } catch {
+    heroDone = true;
+    root.hidden = true;
+    openGate("");
+  }
+}
+
+function openGate(message) {
   $("gate").hidden = false;
   const msg = $("gate-msg");
   msg.textContent = message || "";

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from docker.errors import DockerException, NotFound
 
+from . import history
 from .services import SERVICES
 
 TTL = 4.0  # secondi in cui una lettura resta valida
@@ -348,6 +349,7 @@ def collect(client) -> dict:
             "services": {sid: _service(meta, infos, host["cores"]) for sid, meta in SERVICES.items()},
         }
         _cache["data"], _cache["at"] = data, time.monotonic()
+        history.record(data)   # storico per il grafico della pagina Dettagli (in memoria, non solleva eccezioni)
         return data
     finally:
         _refresh.release()

@@ -1,40 +1,11 @@
-// Le quattro schermate. Ognuna esporta mount(root, ctx) -> { update(), tick }.
-import { h, svg, api, ApiError, fmtBytes, fmtDate, fmtDuration, ago, toast } from "./core.js";
+// Le schermate. Ognuna esporta mount(root, ctx) -> { update() }. Pezzi condivisi: ui.js; pagina «Dettagli» di un servizio: detail.js.
+import { h, api, ApiError, fmtBytes, fmtDate, fmtDuration, ago, toast } from "./core.js";
+import { STATUS_LABEL, HEALTH, HEALTH_LED, led, empty, errorBox, section, serviceUrl, run, level, pct, dec, fact, makeGauge, gaugeValues } from "./ui.js";
+import { servizio } from "./detail.js";
 
-const STATUS_LABEL = {
-  running: "Attivo", partial: "Parziale", stopped: "Fermo", not_created: "Non creato",
-  failed: "Errore", exited: "Finito", created: "In avvio", restarting: "Riavvio",
-};
-
-export const led = (state) => h("span", { class: "led", "data-s": state, "aria-hidden": "true" });
-
-function empty(text) { return h("p", { class: "empty" }, text); }
-function errorBox(e) { return h("p", { class: "notice", "data-kind": "error", role: "alert" }, e.message || String(e)); }
-function section(title, ...body) { return h("section", { class: "block" }, h("h2", {}, title), ...body); }
-
-function serviceUrl(s) {
-  if (!s.url_port) return null;
-  const onTs = location.hostname.endsWith(".ts.net");
-  if (s.ts_only && !onTs) return null;
-  const scheme = onTs ? "https" : s.scheme;
-  return `${scheme}://${location.hostname}:${s.url_port}${s.path || ""}`;
-}
-
-async function run(btn, fn) {
-  btn.disabled = true;
-  try { await fn(); } catch (e) { toast(e.message, "error"); } finally { btn.disabled = false; }
-}
+export { led };
 
 // ---------------------------------------------------------------- Servizi
-const openServices = new Set();
-const RING = 2 * Math.PI * 42; // circonferenza dell'anello (raggio 42 nel viewBox 100x100)
-const HEALTH = { healthy: "Funziona bene", starting: "In avvio", unhealthy: "Non risponde" };
-const HEALTH_LED = { healthy: "running", starting: "partial", unhealthy: "failed" };
-
-const level = (p) => (p == null ? "off" : p >= 85 ? "bad" : p >= 60 ? "warn" : "ok");
-const pct = (n) => (n == null ? "—" : (n < 10 ? n.toFixed(1) : String(Math.round(n))).replace(".", ",") + "%");
-const dec = (n) => String(n).replace(".", ",");
-
 // barra con etichetta, valore e dettaglio (usata per il server)
 function meter(label, p, value, sub) {
   const fill = h("i");
@@ -46,11 +17,18 @@ function meter(label, p, value, sub) {
     sub ? h("small", {}, sub) : null);
 }
 
-function fact(label, value, sub, lead) {
-  return h("div", {}, h("dt", {}, label), h("dd", {}, lead || null, value, sub ? h("small", {}, sub) : null));
+// Esito dell'ultimo controllo dei dischi (smart-check.sh -> /api/smart).
+function smartFact(sm) {
+  if (!sm) return null;
+  if (!sm.configured) return fact("Dischi (SMART)", "Controllo non attivo", "vedi docs/smart.md", led("not_created"));
+  const when = sm.at ? `controllati ${ago(sm.at)}` : "esito non leggibile";
+  if (sm.level === "bad") return fact("Dischi (SMART)", "Guasto rilevato", sm.problems[0], led("failed"));
+  if (sm.stale) return fact("Dischi (SMART)", "Controllo fermo", sm.at ? `ultimo esito ${ago(sm.at)}` : when, led("partial"));
+  if (sm.level === "warn") return fact("Dischi (SMART)", "Da controllare", (sm.warnings[0] || sm.errors[0] || ""), led("partial"));
+  return fact("Dischi (SMART)", "Nessun problema", `${sm.checked} ${sm.checked === 1 ? "disco" : "dischi"}, ${when}`, led("running"));
 }
 
-function renderHost(host) {
+function renderHost(host, smart) {
   const memP = host.mem_total ? (host.mem_used / host.mem_total) * 100 : null;
   const tiles = [
     meter("Processore", host.cpu_percent, pct(host.cpu_percent),
@@ -63,11 +41,13 @@ function renderHost(host) {
   ];
   const facts = h("dl", { class: "mini" },
     fact("Server acceso da", fmtDuration(host.uptime_s)),
-    host.temp_c != null ? fact("Temperatura", dec(host.temp_c) + " °C") : null);
+    host.temp_c != null ? fact("Temperatura", dec(host.temp_c) + " °C") : null,
+    smartFact(smart));
   return [h("div", { class: "meters" }, tiles), facts];
 }
 
-// Una scheda per servizio: barra col nome e l'interruttore, anello d'uso, dati, dettagli.
+// Una scheda per servizio: barra col nome e l'interruttore, anello d'uso, dati essenziali e il link «Dettagli».
+// Manutenzione, log, grafico e risparmio stanno nella pagina Dettagli (detail.js), non qui.
 // Si crea una volta sola e poi si aggiorna sul posto (patch): cosi' il focus non si perde a ogni aggiornamento.
 function makeCard({ act }) {
   const state = { s: null, on: false };
@@ -75,37 +55,15 @@ function makeCard({ act }) {
   const name = h("strong");
   const sw = h("button", { class: "switch", role: "switch", onclick: () => act(state.s, state.on ? "stop" : "start") }, h("span", { class: "knob" }));
   const desc = h("small", { class: "desc" });
-
-  const value = h("strong");
-  const caption = h("small");
-  const arc = svg("circle", { cx: 50, cy: 50, r: 42, class: "arc", transform: "rotate(-90 50 50)" });
-  const gauge = h("div", { class: "gauge", role: "img" },
-    svg("svg", { viewBox: "0 0 100 100", "aria-hidden": "true" }, svg("circle", { cx: 50, cy: 50, r: 42, class: "track" }), arc),
-    h("div", { class: "gv" }, value, caption));
-
+  const gauge = makeGauge();
   const mini = h("dl", { class: "mini" });
-  const containers = h("ul", { class: "containers" });
-  const detail = h("div", { class: "detail", hidden: true }, containers);
-  const more = h("button", { class: "btn quiet", "aria-expanded": "false", onclick: () => {
-    const id = state.s.id;
-    openServices.has(id) ? openServices.delete(id) : openServices.add(id);
-    syncOpen();
-  } }, "Dettagli");
-  const openLink = h("a", { class: "btn", target: "_blank", rel: "noopener" }, "Apri");
-  const restart = h("button", { class: "btn", onclick: () => act(state.s, "restart") }, "Riavvia");
+  const more = h("a", { class: "btn" }, "Dettagli");
+  const openLink = h("a", { class: "btn quiet", target: "_blank", rel: "noopener" }, "Apri");
 
   const el = h("article", { class: "card" },
     h("div", { class: "cardbar" }, ledSlot, h("span", { class: "text" }, name, desc), sw),
-    gauge, mini,
-    h("div", { class: "actions wrap" }, more, openLink, restart),
-    detail);
-
-  function syncOpen() {
-    const open = state.s ? openServices.has(state.s.id) : false;
-    detail.hidden = !open;
-    more.setAttribute("aria-expanded", String(open));
-    more.textContent = open ? "Nascondi dettagli" : "Dettagli";
-  }
+    gauge.el, mini,
+    h("div", { class: "actions wrap" }, more, openLink));
 
   function patch(s, st, host, isBusy) {
     state.s = s;
@@ -123,18 +81,7 @@ function makeCard({ act }) {
     sw.disabled = isBusy || !canToggle;
     sw.title = canToggle ? "" : "Questo servizio non si ferma dal pannello";
 
-    // anello: uso della CPU rispetto a tutto il server
-    let p = null, big, small = "", word = false;
-    if (isBusy) { big = "…"; small = "un attimo"; word = true; }
-    else if (!on) { big = STATUS_LABEL[s.status] || s.status; word = true; }
-    else if (st && st.cpu_host_percent != null) { p = st.cpu_host_percent; big = pct(p); small = "uso CPU"; }
-    else { big = "—"; small = "uso CPU"; }
-    gauge.dataset.level = level(p);
-    arc.style.strokeDasharray = `${p == null ? 0 : (Math.min(100, Math.max(p, 1.5)) / 100) * RING} ${RING}`;
-    value.className = word ? "word" : "";
-    value.textContent = big;
-    caption.textContent = small;
-    gauge.setAttribute("aria-label", `${s.name}: ${big}${small ? " " + small : ""}`);
+    gauge.set(gaugeValues(s, st, isBusy), s.name);
 
     // dati del servizio acceso
     mini.hidden = !(on && st);
@@ -147,23 +94,15 @@ function makeCard({ act }) {
         fact("Riavvii automatici", String(st.restarts), st.restarts > 0 ? "è andato in errore" : null));
     }
 
-    containers.replaceChildren(...s.containers.map((c) => {
-      const x = st && st.containers && st.containers[c.name];
-      const info = c.status === "running" && x
-        ? `${pct(x.cpu_percent != null && host ? x.cpu_percent / host.cores : null)} · ${fmtBytes(x.mem_bytes)}`
-        : STATUS_LABEL[c.status] || c.status;
-      return h("li", {}, led(c.status), h("span", {}, c.name), h("small", {}, info));
-    }));
-
+    more.href = "#servizio/" + encodeURIComponent(s.id);
+    more.setAttribute("aria-label", `Dettagli di ${s.name}`);
+    more.dataset.sid = s.id;
     const url = serviceUrl(s);
     openLink.hidden = !url || !on;
-    if (url) openLink.href = url;
-    restart.hidden = !s.can_stop;
-    restart.disabled = isBusy || s.status === "not_created";
-    syncOpen();
+    if (url) { openLink.href = url; openLink.setAttribute("aria-label", `Apri ${s.name} (nuova scheda)`); }
   }
 
-  return { el, patch };
+  return { el, patch, link: more };
 }
 
 // Sostituisce i figli solo se l'elenco o l'ordine e' cambiato: cosi' il focus sui pulsanti non si perde a ogni aggiornamento.
@@ -245,7 +184,7 @@ export function servizi(root, ctx) {
     await update();
   }
 
-  function renderAlerts(services, st) {
+  function renderAlerts(services, st, smart) {
     const msgs = [];
     services.forEach((s) => {
       const x = st && st.services && st.services[s.id];
@@ -263,6 +202,12 @@ export function servizi(root, ctx) {
       (host.disks || []).forEach((d) => { if (d.total && d.used / d.total >= 0.9) msgs.push(`Il disco ${d.label} è quasi pieno.`); });
       if (host.temp_c != null && host.temp_c >= 75) msgs.push(`Il server è caldo: ${dec(host.temp_c)} °C.`);
     }
+    if (smart && smart.configured) {
+      smart.problems.slice(0, 3).forEach((m) => msgs.push(`Disco in pericolo: ${m}`));
+      smart.warnings.slice(0, 3).forEach((m) => msgs.push(`Disco da controllare: ${m}`));
+      smart.errors.slice(0, 2).forEach((m) => msgs.push(`Controllo dei dischi: ${m}`));
+      if (smart.stale && smart.at) msgs.push(`Il controllo dei dischi non gira da ${ago(smart.at).replace(" fa", "")}: guarda il cron di smart-check.sh.`);
+    }
     const key = msgs.join("|");
     if (key === alertKey) return; // non ricreo gli avvisi se non cambiano (i lettori di schermo non li rileggono)
     alertKey = key;
@@ -271,9 +216,9 @@ export function servizi(root, ctx) {
   }
 
   function render() {
-    const { services, st } = last;
+    const { services, st, smart } = last;
     const host = st && st.host;
-    hostBox.replaceChildren(...(host ? renderHost(host) : [h("p", { class: "empty" }, "Dati del server non disponibili.")]));
+    hostBox.replaceChildren(...(host ? renderHost(host, smart) : [h("p", { class: "empty" }, "Dati del server non disponibili.")]));
     const main = [], util = [];
     services.forEach((s) => {
       let c = cards.get(s.id);
@@ -285,7 +230,12 @@ export function servizi(root, ctx) {
     place(utilGrid, util);
     utilSection.hidden = util.length === 0;
     renderModes(services);
-    renderAlerts(services, st);
+    renderAlerts(services, st, smart);
+    if (ctx.focusSid) {   // tornando da «Dettagli» il focus riparte dal link del servizio che si stava guardando
+      const c = cards.get(ctx.focusSid);
+      ctx.focusSid = null;
+      if (c) c.link.focus({ preventScroll: false });
+    }
   }
 
   // Lo stato dei servizi e' leggero (una sola chiamata a Docker) e si rinnova a ogni giro; le statistiche costano di piu'
@@ -299,13 +249,15 @@ export function servizi(root, ctx) {
       if (!modeDefs) modeDefs = await api("/modes").catch(() => null);   // se manca, la sezione resta nascosta e si riprova al giro dopo
       const key = services.map((s) => s.id + s.status).join();
       let st = last ? last.st : null;
+      let smart = last ? last.smart : null;
       if (key !== statesKey || Date.now() - statsAt >= STATS_EVERY_MS) {
-        // le statistiche sono un di piu': se mancano si vedono comunque i servizi
-        const fresh = await api("/stats").catch(() => null);
+        // le statistiche e l'esito SMART sono un di piu': se mancano si vedono comunque i servizi
+        const [fresh, sm] = await Promise.all([api("/stats").catch(() => null), api("/smart").catch(() => null)]);
         if (fresh) { st = fresh; statsAt = Date.now(); }
+        if (sm) smart = sm;
         statesKey = key;
       }
-      last = { services, st };
+      last = { services, st, smart };
       render();
       ctx.setServices(services);
     } catch (e) {
@@ -352,12 +304,13 @@ export function backup(root, ctx) {
       return [
         h("p", { class: "lead" }, "Il backup non è ancora attivo."),
         h("ul", { class: "bullets" }, st.problems.map((p) => h("li", {}, p))),
-        h("p", { class: "hint" }, "Si attiva compilando RESTIC_REPO_DIR e RESTIC_PASSWORD_FILE nel file .env (istruzioni in docs/restic.md), poi `docker compose up -d --build`."),
+        h("p", { class: "hint" }, "Si attiva compilando RESTIC_REPO_DIR e RESTIC_PASSWORD_FILE nel file .env (istruzioni in docs/restic.md), poi `docker compose up -d --build`. Per l'archivio su un disco esterno: ./src/scripts/backup-disco.sh."),
       ];
     }
     const running = st.job && st.job.result === "running";
+    const diskGone = !!(st.disk && !st.disk.present);
     const mk = (label, kind, cls = "btn") => h("button", { class: cls, disabled: running, onclick: (e) => start(e.currentTarget, kind) }, label);
-    const actions = !st.initialized
+    const actions = diskGone ? [] : !st.initialized
       ? [mk("Prepara l'archivio", "init", "btn primary")]
       : [mk("Esegui backup ora", "backup", "btn primary"), mk("Controlla integrità", "check"),
          confirming
@@ -366,15 +319,18 @@ export function backup(root, ctx) {
            : h("button", { class: "btn", disabled: running, onclick: () => { confirming = true; update(); } }, "Pulisci vecchie copie")];
     return [
       h("dl", { class: "facts" },
-        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.initialized ? (st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : "ancora nessuna") : "archivio da preparare")),
-        h("div", {}, h("dt", {}, "Automatico"), h("dd", {}, st.schedule ? `ogni giorno alle ${st.schedule}` : "disattivato")),
-        h("div", {}, h("dt", {}, "Dove"), h("dd", {}, st.repo || "")),
+        h("div", {}, h("dt", {}, "Ultima copia"), h("dd", {}, st.last_backup_at ? `${ago(st.last_backup_at)} (${fmtDate(st.last_backup_at)})` : st.initialized === false ? "archivio da preparare" : "ancora nessuna")),
+        h("div", {}, h("dt", {}, "Quando parte"), h("dd", {}, "solo quando lo avvii tu, da qui")),
+        h("div", {}, h("dt", {}, "Dove"), h("dd", {}, (st.repo || "") + (st.disk ? (st.disk.present ? " (disco collegato)" : " (disco NON collegato)") : ""))),
         h("div", {}, h("dt", {}, "Cosa si salva"), h("dd", {}, st.sources.map((s) => s.path + (s.exists ? "" : " (non trovata)")).join(", ")))),
+      ...(diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, `Il disco di backup non è collegato (lo cerco in ${st.disk.path}). Collegalo e montalo per fare un backup o vedere le copie salvate.`)] : []),
+      ...(st.stale && !diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, st.last_backup_at ? `L'ultima copia risale a ${st.age_days} giorni fa: è ora di farne una.` : "Non c'è ancora nessuna copia: fai il primo backup.")] : []),
+      ...(st.stale && diskGone ? [h("p", { class: "notice", "data-kind": "warn" }, st.last_backup_at ? `L'ultima copia risale a ${st.age_days} giorni fa: collega il disco e fanne una.` : "Non c'è ancora nessuna copia.")] : []),
       h("div", { class: "actions wrap" }, actions),
     ];
   }
 
-  function renderJob(job) {
+  function renderJob(job, st) {
     if (!job) { jobBox.hidden = true; return; }
     jobBox.hidden = false;
     const state = job.result === "running" ? "partial" : job.result === "failed" ? "failed" : "running";
@@ -384,6 +340,8 @@ export function backup(root, ctx) {
       h("div", { class: "line" },
         h("div", { class: "rowmain static" }, led(state), h("span", { class: "text" }, h("strong", {}, JOB_LABEL[job.kind] || "Operazione"), h("small", {}, `${RESULT_LABEL[job.result] || job.result}${job.finished_at && job.result !== "running" ? ", " + ago(job.finished_at) : ""}`))),
         h("button", { class: "btn quiet", onclick: () => { showLogs = !showLogs; update(); } }, showLogs ? "Nascondi log" : "Log")),
+      ...(st && st.disk && job.kind === "backup" && (job.result === "ok" || job.result === "warning")
+        ? [h("p", { class: "hint" }, "Finito: ora puoi scollegare il disco. Espellilo prima dal sistema, poi tienilo spento o altrove.")] : []),
       pre);
   }
 
@@ -406,7 +364,7 @@ export function backup(root, ctx) {
       const st = await api("/backup/status");
       statusBox.replaceChildren(...renderStatus(st));
       const key = st.job ? `${st.job.kind}|${st.job.result}|${st.job.finished_at}` : "";
-      renderJob(st.job);
+      renderJob(st.job, st);
       if (key !== lastJobKey || snapSection.hidden) { lastJobKey = key; await loadSnapshots(st); }
     } catch (e) { statusBox.replaceChildren(errorBox(e)); }
   }
@@ -511,5 +469,5 @@ export function accessi(root, ctx) {
   return { update };
 }
 
-export const VIEWS = { servizi, backup, rete, accessi };
-export const TITLES = { servizi: "Servizi", backup: "Backup", rete: "Rete", accessi: "Accessi" };
+export const VIEWS = { servizi, servizio, backup, rete, accessi };
+export const TITLES = { servizi: "Servizi", servizio: "Dettagli", backup: "Backup", rete: "Rete", accessi: "Accessi" };

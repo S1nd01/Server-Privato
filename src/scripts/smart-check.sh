@@ -122,6 +122,33 @@ report=""
 for m in "${problems[@]}"; do report+="GUASTO  $m"$'\n'; done
 for m in "${warnings[@]}"; do report+="ATTENZIONE  $m"$'\n'; done
 for m in "${errors[@]}"; do report+="ERRORE  $m"$'\n'; done
+
+# Esito per il pannello (schermata Servizi, GET /api/smart): lo si riscrive a ogni esecuzione vera, anche quando va tutto bene,
+# cosi' il pannello vede anche quando il controllo smette di girare. Non in --stampa/--test. Scrittura atomica, leggibile dal container.
+json_str() {
+  local v="$1"
+  v="$(printf '%s' "$v" | tr -d '\000-\010\013\014\016-\037')"
+  v="${v//\\/\\\\}"; v="${v//\"/\\\"}"; v="${v//$'\n'/ }"; v="${v//$'\t'/ }"
+  printf '"%s"' "$v"
+}
+json_list() {
+  local first=1 m
+  printf '['
+  for m in "$@"; do [ "$first" = 1 ] || printf ','; first=0; json_str "$m"; done
+  printf ']'
+}
+write_status() {
+  { [ "$mode" = notify ] || [ "$mode" = force ]; } && [ -n "$data_dir" ] || return 0
+  local dir="$data_dir/panel" tmp
+  mkdir -p "$dir" 2>/dev/null && tmp="$(mktemp "$dir/.smart-status.XXXXXX" 2>/dev/null)" || return 0
+  {
+    printf '{"at":%s,"checked":%s,' "$(date +%s)" "$checked"
+    printf '"problems":%s,' "$(json_list "${problems[@]}")"
+    printf '"warnings":%s,' "$(json_list "${warnings[@]}")"
+    printf '"errors":%s}\n' "$(json_list "${errors[@]}")"
+  } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$dir/smart-status.json" || rm -f "$tmp"
+}
+write_status
 if [ -z "$report" ]; then echo "Dischi controllati: $checked. Nessun problema."; exit 0; fi
 printf '%s' "$report"
 

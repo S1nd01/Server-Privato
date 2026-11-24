@@ -1,6 +1,6 @@
 // Service worker: tiene l'app (non i dati) per aprirla anche senza rete. Non memorizza MAI le chiamate /api/.
-const CACHE = "hs-shell-v3";
-const SHELL = ["/", "/style.css", "/app.js", "/core.js", "/views.js", "/manifest.webmanifest",
+const CACHE = "hs-shell-v4";
+const SHELL = ["/", "/style.css", "/app.js", "/core.js", "/ui.js", "/detail.js", "/views.js", "/manifest.webmanifest",
   "/fonts/bricolage-grotesque-latin-wght-normal.woff2", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {

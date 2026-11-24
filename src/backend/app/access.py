@@ -102,6 +102,36 @@ CATALOG = [
         "note": "Imposta una nuova password per quell'utente.",
     },
     {
+        "id": "plex", "name": "Plex",
+        "where": "Sull'account plex.tv, non sul server: il server si associa con un token temporaneo (PLEX_CLAIM) che poi si svuota.",
+        "recovery": "reimposta", "command": None,
+        "note": "Password dimenticata: si reimposta dal sito plex.tv. Per riassociare il server a un altro account: nuovo token da https://plex.tv/claim in PLEX_CLAIM nel .env, poi svuotalo (docs/plex.md).",
+    },
+    {
+        "id": "romm", "name": "RomM",
+        "where": "Nel suo database, come hash. Il primo utente creato è l'amministratore. Le password del database sono nel .env (ROMM_DB_PASSWORD, ROMM_DB_ROOT_PASSWORD).",
+        "recovery": "reimposta", "command": None,
+        "note": "Nessuno script di recupero. Non cambiare ROMM_DB_PASSWORD dopo il primo avvio: MariaDB la imposta solo alla creazione del database (docs/romm.md).",
+    },
+    {
+        "id": "copyparty", "name": "Scambio file (Copyparty)",
+        "where": "In chiaro nel file data/copyparty/cfg/copyparty.conf (permessi 600). Un solo account, nessun accesso anonimo.",
+        "recovery": "reimposta", "command": "./src/scripts/copyparty-setup.sh --reimposta",
+        "note": "Sceglie una password nuova per lo stesso utente e riavvia il container. Senza opzioni, lo script mostra solo lo stato: ./src/scripts/copyparty-setup.sh --stato",
+    },
+    {
+        "id": "syncthing", "name": "Syncthing",
+        "where": "Nella configurazione di Syncthing (data/syncthing), come hash. Finché non imposti utente e password l'interfaccia è aperta a chiunque sia sul tuo tailnet.",
+        "recovery": "reimposta", "command": "./src/scripts/syncthing-setup.sh",
+        "note": "Mostra l'ID del dispositivo e la password una volta sola. Per vedere le impostazioni attuali senza cambiarle: ./src/scripts/syncthing-setup.sh --stato (script non provato su un'immagine reale: docs/syncthing.md).",
+    },
+    {
+        "id": "convertx", "name": "Convertitore di file (ConvertX)",
+        "where": "Nel suo database (data/convertx). Il primo account lo crea chi apre per primo la pagina, poi la registrazione si chiude.",
+        "recovery": "reimposta", "command": None,
+        "note": "Nessuno script. Il contenuto è usa e getta (i file si cancellano dopo 24 ore): se perdi l'accesso puoi fermare il container, azzerare la cartella data/convertx e registrare di nuovo l'account (non provato). Dopo ogni riavvio devi rifare il login: è voluto (docs/convertx.md).",
+    },
+    {
         "id": "restic", "name": "Backup Restic, passphrase",
         "where": "In un file sul server (RESTIC_PASSWORD_FILE, di solito ~/.restic-pass).",
         "recovery": "mostra", "command": f"{SCRIPT} mostra restic",

@@ -6,7 +6,7 @@ import anyio.to_thread
 from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import access, backup, desired, stats, tailscale
+from . import access, backup, desired, detail, smart, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import MODES, NETWORK_PROVIDERS, SERVICES
@@ -29,6 +29,8 @@ app = FastAPI(
 app.include_router(access.router)
 app.include_router(tailscale.router)
 app.include_router(backup.router)
+app.include_router(detail.router)   # pagina «Dettagli»: contenitori, log, storico risorse
+app.include_router(smart.router)    # stato dei dischi scritto da smart-check.sh
 
 
 def _snapshot(client) -> dict[str, str]:

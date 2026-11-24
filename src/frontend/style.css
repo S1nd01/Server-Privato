@@ -245,3 +245,64 @@ input[type="text"], input[type="number"], input[type="password"], select {
 #gate-form .gate-help { color: var(--muted); font-size: .9375rem; }
 #gate-form .gate-help summary { cursor: pointer; min-height: 2.75rem; display: flex; align-items: center; font-weight: 600; color: var(--ink); }
 #gate-form .gate-help code { display: block; margin: .5rem 0; padding: .6rem .75rem; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; font: .8125rem/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; color: var(--ink); }
+
+/* ---- pagina Dettagli di un servizio (#servizio/<id>, detail.js) ---- */
+main > .dpage { max-width: 60rem; }
+.dframe { display: grid; gap: 1.25rem 1.75rem; grid-template-columns: minmax(0, 1fr); margin-bottom: 1.5rem; }
+.dleft { display: grid; gap: .75rem; align-content: start; justify-items: start; }
+.dtitle { font-size: 1.6rem; margin: 0; }
+.dtitle:focus-visible { outline-offset: 4px; }
+.dstatus { margin: 0; display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+.dleft .hint { margin: 0; }
+.gauge.big { width: 11rem; height: 11rem; justify-self: center; }
+.gauge.big .gv strong { font-size: 2.1rem; }
+.dright { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.dbtns { display: grid; gap: .6rem; }
+.dbtns .btn { flex: 1 1 11rem; }
+.dnote { margin: 0; }
+.dnote:empty { display: none; }
+.dback { align-self: end; }
+.btn.back { gap: .5rem; }
+.ico { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (min-width: 720px) {
+  .dframe { grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr); }
+  .dback { grid-column: 1 / -1; }
+  .dleft { justify-items: stretch; }
+  .dleft .dstatus, .dleft .dtitle { justify-self: start; }
+}
+
+/* grafico: tre linee su un solo asse, distinguibili anche senza colore (tratto pieno, tratteggio, puntinato) */
+.chartbox { margin: 0; display: grid; gap: .6rem; min-width: 0; }
+.charthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.charthead figcaption { font-weight: 600; }
+.seg { display: inline-flex; gap: .25rem; }
+.seg .btn { min-height: 2.25rem; padding: 0 .75rem; font-size: .875rem; }
+.chartwrap { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: .5rem; }
+.chart { display: block; width: 100%; }
+.chartmsg { padding: 2.5rem 1rem; text-align: center; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .ctext { fill: var(--muted); font: 11px "Bricolage Grotesque", system-ui, sans-serif; }
+.ln, .dot { stroke-linejoin: round; stroke-linecap: round; }
+.ln { stroke-width: 2.25; fill: none; }
+.s-cpu.ln { stroke: var(--accent); }
+.s-mem.ln { stroke: var(--ok); stroke-dasharray: 8 5; }
+.s-host.ln { stroke: var(--muted); stroke-dasharray: 2 5; }
+.dot.s-cpu { fill: var(--accent); } .dot.s-mem { fill: var(--ok); } .dot.s-host { fill: var(--muted); }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; font-size: .875rem; }
+.legend li { display: flex; align-items: center; gap: .45rem; }
+.legend strong { font-variant-numeric: tabular-nums; }
+.lsample { flex: none; }
+.lsample .ln { stroke-width: 2.5; }
+
+/* sezioni sotto la cornice */
+.facts.grid { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .9rem 1.25rem; }
+.facts.grid > div, .facts.compact > div { min-width: 0; }
+.facts.grid dd, .facts.compact dd { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.facts.compact { grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .75rem 1.25rem; padding: .25rem 0 .9rem; }
+.facts.compact dd { align-items: flex-start; }
+.facts dd small { font-weight: 400; }
+.plainlist { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; font-size: .875rem; overflow-wrap: anywhere; }
+.conts .cont { padding: .15rem 1rem; }
+.conts .cont + .cont { border-top: 1px solid var(--line); }
+.conts .line { min-height: 3.25rem; }
+.conts .log { margin-top: .25rem; }
