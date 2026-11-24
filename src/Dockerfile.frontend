@@ -1,0 +1,15 @@
+# Build multi-stage: Node compila React, Nginx serve solo asset statici.
+ARG NODE_IMAGE=node:22-alpine
+ARG NGINX_IMAGE=nginx:alpine
+
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+COPY hero/package.json ./
+RUN npm install --no-audit --no-fund
+COPY hero/ ./
+RUN npm run build
+
+FROM ${NGINX_IMAGE}
+COPY frontend/fonts/ /usr/share/nginx/html/fonts/
+COPY frontend/icons/ /usr/share/nginx/html/icons/
+COPY --from=build /app/dist/ /usr/share/nginx/html/

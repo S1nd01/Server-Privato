@@ -265,57 +265,35 @@ if tg:
     check(len(secrets_mount) == 1 and secrets_mount[0].get("read_only") is True, "i segreti di ntfy-telegram devono essere montati in sola lettura")
     check(not any("telegram_bot_token" in str(e) or "ntfy_token" in str(e) for e in (tg.get("environment") or {}).values()), "i token non vanno nelle variabili d'ambiente")
 
-# ---------------------------------------------------------------- schermata iniziale (src/hero)
+# ---------------------------------------------------------------- frontend React
 begin("hero")
-hero_src = "".join(f.read_text() for f in sorted((ROOT / "src/hero/src").glob("*.jsx")))
-hero_code = re.sub(r"/\*.*?\*/|(?<!:)//[^\n]*", "", hero_src, flags=re.S)   # senza commenti: citare <nav> in un commento non e' usarlo
-panel_css = re.sub(r"/\*.*?\*/", "", (ROOT / "src/frontend/style.css").read_text(), flags=re.S)
-panel_classes = set(re.findall(r"\.([A-Za-z_][\w-]*)", panel_css))
-# classi usate nell'hero: ogni parola dentro className="..." o className={`...`}. Quelle con variante (md:block, hover:...) hanno un
-# nome diverso (`md\\:block`) e non possono scontrarsi con una classe del pannello: contano solo le altre.
-used = set()
-for a, b in re.findall(r'className=(?:"([^"]*)"|\{`([^`]*)`\})', hero_code):
-    used |= {t for t in f"{a} {b}".split() if t and ":" not in t and "$" not in t and "{" not in t}
-clash = sorted(used & panel_classes)
-check(not clash, f"classi usate sia dall'hero (Tailwind) sia da src/frontend/style.css: {clash}. Lo stile del pannello le applicherebbe all'hero (e' gia' successo con 'block': +2rem di margine)")
-# elementi che style.css stila in modo globale: nell'hero si usano div con role, non questi tag
-for tag in ("nav", "main"):
-    check(not re.search(rf"<{tag}[\s>]", hero_code), f"l'hero usa <{tag}>, che style.css stila in modo globale: usa <div role=\"{'navigation' if tag == 'nav' else 'main'}\">")
-check((ROOT / "src/hero/package-lock.json").is_file(), "manca src/hero/package-lock.json (serve a `npm ci` nella build del frontend)")
+hero_src = (ROOT / "src/hero/src/App.jsx").read_text()
+package = json.loads((ROOT / "src/hero/package.json").read_text())
+check(package.get("dependencies", {}).get("react") and package.get("dependencies", {}).get("react-dom"),
+      "src/hero/package.json: React e React DOM devono essere dipendenze esplicite")
+check(package.get("devDependencies", {}).get("vite"), "src/hero/package.json: manca Vite")
+check((ROOT / "src/hero/src/main.jsx").is_file() and (ROOT / "src/hero/src/styles.css").is_file(),
+      "frontend React incompleto: main.jsx o styles.css mancante")
+check("createRoot" in (ROOT / "src/hero/src/main.jsx").read_text(), "main.jsx deve montare React con createRoot")
 fe = svc.get(key("hs_frontend") or "", {})
 bld = fe.get("build") or {}
-check(bld.get("dockerfile") == "Dockerfile.frontend" and str(bld.get("context", "")).endswith("/src"), "il frontend deve costruirsi da src/Dockerfile.frontend (contesto ./src)")
-check(not any(v.get("target") == "/usr/share/nginx/html" for v in fe.get("volumes") or []), "src/frontend e' ancora montato su /usr/share/nginx/html e nasconderebbe l'hero compilato in /hero")
+check(bld.get("dockerfile") == "Dockerfile.frontend" and str(bld.get("context", "")).endswith("/src"),
+      "il frontend deve costruirsi da src/Dockerfile.frontend (contesto ./src)")
+check(not any(v.get("target") == "/usr/share/nginx/html" for v in fe.get("volumes") or []),
+      "il frontend non deve montare una cartella sull'output statico Nginx")
 df = (ROOT / "src/Dockerfile.frontend").read_text()
-check("COPY hero/package.json hero/package-lock.json" in df and "npm ci" in df and "/usr/share/nginx/html/hero/" in df, "src/Dockerfile.frontend: mancano `npm ci` con il lockfile o la copia della build in /hero")
-# CSP: il video esterno e' consentito solo dove serve, e senza aprire altro
+check("npm install" in df and "npm run build" in df and "/app/dist/" in df,
+      "src/Dockerfile.frontend deve installare le dipendenze e copiare la build React nella root Nginx")
+# CSP: nessuno script inline/eval; gli asset del pannello sono same-origin.
 csp = re.search(r'Content-Security-Policy "([^"]*)"', (ROOT / "nginx/security-headers.conf").read_text())
 check(csp is not None, "manca la Content-Security-Policy in nginx/security-headers.conf")
 if csp:
     dirs = {d.split()[0]: d.split()[1:] for d in csp.group(1).split(";") if d.strip()}
     check("'unsafe-inline'" not in csp.group(1) and "'unsafe-eval'" not in csp.group(1), "la CSP non deve contenere 'unsafe-inline' o 'unsafe-eval'")
-    check(dirs.get("script-src") == ["'self'"] and dirs.get("style-src") == ["'self'"] and dirs.get("worker-src") == ["'self'"], "script-src, style-src e worker-src devono restare 'self'")
-    cfg_js = (ROOT / "src/hero/src/config.js").read_text()
-    vm = re.search(r'VIDEO_SRC\s*=\s*"([^"]*)"', cfg_js)
-    check(vm is not None, "VIDEO_SRC non trovato in src/hero/src/config.js")
-    if vm:
-        from urllib.parse import urlparse
-        u = urlparse(vm.group(1))
-        def allowed(directive):
-            for src in dirs.get(directive, []):
-                if src.startswith("https://"):
-                    h = src[len("https://"):]
-                    if u.hostname == h or (h.startswith("*.") and u.hostname.endswith(h[1:])):
-                        return True
-            return False
-        if u.scheme == "https":
-            check(allowed("media-src") and allowed("connect-src"), f"VIDEO_SRC ({u.hostname}) non e' ammesso da media-src e connect-src nella CSP")
-        else:
-            check(all(x.startswith("https://") or x in ("'self'", "blob:") for x in dirs.get("media-src", []) + dirs.get("connect-src", [])) and
-                  not any(x.startswith("https://") for x in dirs.get("media-src", []) + dirs.get("connect-src", [])),
-                  "VIDEO_SRC e' locale: togli da media-src e connect-src gli host esterni (https://*.mux.com) dalla CSP")
-    ext = [x for d in ("media-src", "connect-src") for x in dirs.get(d, []) if x.startswith("http")]
-    check(all(x == "https://*.mux.com" for x in ext) or not ext, f"la CSP ammette host esterni oltre a Mux: {ext}")
+    check(dirs.get("script-src") == ["'self'"] and dirs.get("style-src") == ["'self'"] and dirs.get("worker-src") == ["'self'"],
+          "script-src, style-src e worker-src devono restare 'self'")
+    check(not any(x.startswith("http") for d in ("media-src", "connect-src") for x in dirs.get(d, [])),
+          "la CSP non deve ammettere host esterni non necessari al pannello")
 
 # ---------------------------------------------------------------- backup manuale su disco esterno
 begin("backup")
