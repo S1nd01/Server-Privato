@@ -321,6 +321,12 @@ function DashboardApp() {
   }, [page, authenticated, loadBackup, loadNetwork, loadAccess]);
 
   useEffect(() => {
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
     const handler = e => { e.preventDefault(); setInstallPrompt(e); };
     const installed = () => setInstallPrompt(null);
     window.addEventListener("beforeinstallprompt", handler);
