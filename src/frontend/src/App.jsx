@@ -1,34 +1,52 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { HashRouter, useLocation, useNavigate } from "react-router-dom";
 import { api, clearToken, getToken, probe } from "./api.js";
 import BackupPage from "./Backup.jsx";
 import Login from "./Login.jsx";
 import { AccessPage, NetworkPage } from "./Network.jsx";
-import { Overview, ServicesPage } from "./Services.jsx";
+import { ResourcesPage, ServiceDetail, ServicesPage } from "./Services.jsx";
 import Welcome from "./Welcome.jsx";
 
 const NAV = [
-  { id: "overview", label: "Panoramica", icon: "◫" },
-  { id: "services", label: "Servizi", icon: "▦" },
-  { id: "backup", label: "Backup", icon: "◈" },
-  { id: "network", label: "Rete", icon: "⌁" },
-  { id: "access", label: "Accessi", icon: "⌑" },
+  { id: "backup", label: "Backup" },
+  { id: "network", label: "Rete" },
+  { id: "access", label: "Accessi" },
+  { id: "resources", label: "Risorse" },
 ];
-function Icon({ children }) {
-  return (
-    <span className="nav-icon" aria-hidden="true">
-      {children}
-    </span>
-  );
-}
+
 function DashboardApp() {
   const routerLocation = useLocation();
   const navigateTo = useNavigate();
   const route = routerLocation.pathname.replace(/^\//, "");
-  const legacy = { servizi: "services", rete: "network", accessi: "access" };
-  const page = NAV.some((item) => item.id === route)
-    ? route
-    : legacy[route] || "overview";
+  const serviceId = /^services\/([a-z0-9-]+)$/.exec(route)?.[1];
+  const legacy = { rete: "network", accessi: "access" };
+  const page = serviceId
+    ? "detail"
+    : NAV.some((item) => item.id === route)
+      ? route
+      : Object.hasOwn(legacy, route)
+        ? legacy[route]
+        : "services";
+  const gridScroll = useRef(0);
+  const gridFocus = useRef(null);
+
+  useLayoutEffect(() => {
+    if (page === "services") {
+      document
+        .getElementById(gridFocus.current)
+        ?.focus({ preventScroll: true });
+      window.scrollTo(0, gridScroll.current);
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, [page, serviceId]);
+
   const [welcome, setWelcome] = useState(false);
   const [help, setHelp] = useState(false);
   const enter = useCallback(
@@ -58,17 +76,7 @@ function DashboardApp() {
   const [toast, setToast] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshError, setRefreshError] = useState("");
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const onEscape = (event) => {
-      if (event.key === "Escape") setSidebarOpen(false);
-    };
-    window.addEventListener("keydown", onEscape);
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [sidebarOpen]);
 
   const notify = useCallback((message) => {
     setToast(message);
@@ -303,20 +311,30 @@ function DashboardApp() {
     }
   }
 
-  function navigate(id) {
-    navigateTo("/" + id);
-    setSidebarOpen(false);
+  function openService(id) {
+    gridScroll.current = window.scrollY;
+    gridFocus.current = "service-" + id;
+    navigateTo("/services/" + id, { state: { fromGrid: true } });
   }
+
+  function backToServices() {
+    if (routerLocation.state?.fromGrid) navigateTo(-1);
+    else navigateTo("/services");
+  }
+
   function logout() {
     clearToken();
     setAuthenticated(false);
     setAuthMessage("");
-    navigateTo("/overview");
+    navigateTo("/services");
   }
 
   const active = services.filter((s) => s.status === "running").length;
-  const partial = services.filter((s) => s.status === "partial").length;
-  const pageTitle = NAV.find((n) => n.id === page)?.label || "Panoramica";
+  const selected = services.find((service) => service.id === serviceId);
+  const pageTitle =
+    page === "detail"
+      ? selected?.name || "Dettaglio servizio"
+      : NAV.find((item) => item.id === page)?.label || "Servizi";
 
   if (checking)
     return (
@@ -340,79 +358,63 @@ function DashboardApp() {
 
   return (
     <div className="app-shell">
-      <aside className={"sidebar " + (sidebarOpen ? "open" : "")}>
-        <div className="sidebar-brand">
+      <header className="homeserver-header">
+        <a
+          className="home-link"
+          href="#/services"
+          aria-current={page === "services" ? "page" : undefined}
+        >
           <img className="brand-mark" alt="" src="/icons/icon.svg" />
-          <div>
-            <strong>HomeServer</strong>
-          </div>
-        </div>
-
-        <nav className="side-nav">
+          <strong>HomeServer</strong>
+        </a>
+        <nav className="top-nav" aria-label="Navigazione principale">
           {NAV.map((item) => (
-            <button
+            <a
               key={item.id}
+              href={"#/" + item.id}
               aria-current={page === item.id ? "page" : undefined}
-              className={page === item.id ? "active" : ""}
-              onClick={() => navigate(item.id)}
             >
-              <Icon>{item.icon}</Icon>
               {item.label}
-            </button>
+            </a>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="connection-indicator">
-            <i /> Sessione attiva
-          </div>
-          <button className="sidebar-logout" onClick={logout}>
-            Esci dal pannello
-          </button>
-        </div>
-      </aside>
-      {sidebarOpen && (
-        <button
-          className="scrim"
-          aria-label="Chiudi navigazione"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <div className="main-shell">
-        <header className="topbar">
-          <button
-            className="mobile-menu"
-            aria-expanded={sidebarOpen}
-            aria-label="Apri navigazione"
-            onClick={() => setSidebarOpen(true)}
-          >
-            ☰
-          </button>
-          <div>
-            <h1>{pageTitle}</h1>
-          </div>
-          <div className="topbar-right">
-            <div className="top-status">
-              <span className="good-dot" />
-              {active} <span className="warn-dot" />
-              {partial} <span className="bad-dot" />
-              {services.length - active - partial}
-            </div>
-            <span className="updated-label">
-              {lastUpdated
-                ? "Aggiornato " + lastUpdated.toLocaleTimeString("it-IT")
-                : "Aggiornamento…"}
-            </span>
-            <button
-              className="icon-button"
-              aria-label="Aggiorna"
-              title="Aggiorna"
-              onClick={() => refresh(true)}
-            >
-              ↻
-            </button>
-          </div>
-        </header>
+      </header>
+      <div className="work-area">
         <main className="content">
+          {(page === "detail" || page === "resources") && (
+            <button
+              type="button"
+              className="button subtle back-link"
+              onClick={backToServices}
+            >
+              ← Tutti i servizi
+            </button>
+          )}
+          <div className="page-heading">
+            <div>
+              <h1>{pageTitle}</h1>
+              {page === "services" && services.length > 0 && (
+                <p>
+                  {active} attivi su {services.length}
+                </p>
+              )}
+            </div>
+            <div className="page-tools">
+              {lastUpdated && (
+                <small>
+                  Aggiornato {lastUpdated.toLocaleTimeString("it-IT")}
+                </small>
+              )}
+              <button
+                className="icon-button"
+                aria-label="Aggiorna"
+                title="Aggiorna"
+                onClick={() => refresh(true)}
+              >
+                ↻
+              </button>
+            </div>
+          </div>
           {refreshError && (
             <div className="inline-error" role="alert">
               {refreshError}
@@ -420,7 +422,7 @@ function DashboardApp() {
           )}
           {(stats?.setup?.missing?.length || stats?.setup?.root_owned?.length) >
             0 &&
-            (page === "overview" || page === "services") && (
+            (page === "resources" || page === "services") && (
               <details className="warning-box">
                 <summary>Verifica le cartelle sul server</summary>
                 <p>
@@ -436,26 +438,35 @@ function DashboardApp() {
                 )}
               </details>
             )}
-          {page === "overview" && (
-            <Overview
-              services={services}
-              stats={stats}
-              backup={backup}
-              network={network}
-              onNavigate={navigate}
-            />
-          )}
           {page === "services" && (
             <ServicesPage
               services={services}
-              stats={stats}
               onAction={serviceAction}
               busyServices={busyServices}
               modes={modes}
               onMode={applyMode}
               busyMode={busyMode}
+              onDetails={openService}
             />
           )}
+          {page === "resources" && (
+            <ResourcesPage stats={stats} services={services} />
+          )}
+          {page === "detail" &&
+            (selected ? (
+              <ServiceDetail
+                service={selected}
+                stats={stats?.services?.[selected.id]}
+                onAction={serviceAction}
+                busy={busyServices.has(selected.id)}
+              />
+            ) : (
+              <p className="empty-state">
+                {services.length
+                  ? "Servizio non disponibile."
+                  : "In attesa dell’elenco dei servizi…"}
+              </p>
+            ))}
           {page === "backup" && (
             <BackupPage
               data={backup}
@@ -473,6 +484,11 @@ function DashboardApp() {
             />
           )}
           {page === "access" && <AccessPage data={access} />}
+          <footer className="homeserver-footer">
+            <button className="text-button" onClick={logout}>
+              Esci dal pannello
+            </button>
+          </footer>
         </main>
       </div>
       {toast && (

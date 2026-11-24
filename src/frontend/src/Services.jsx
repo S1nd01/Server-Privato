@@ -1,5 +1,5 @@
 import React from "react";
-import { formatBytes, formatDate, formatDuration } from "./api.js";
+import { formatBytes, formatDuration } from "./api.js";
 import {
   Card,
   Empty,
@@ -62,51 +62,35 @@ function HostPanel({ host }) {
   );
 }
 
-function ServiceCard({ service, stats, onAction, busy }) {
+function ServiceActions({ service, onAction, busy, detailed = false }) {
   const active = service.status === "running" || service.status === "partial";
-  const usage = stats?.cpu_host_percent;
+  const onTailnet = location.hostname.endsWith(".ts.net");
   const url =
-    service.url_port &&
-    (!service.ts_only || location.hostname.endsWith(".ts.net"))
-      ? (location.hostname.endsWith(".ts.net") ? "https" : service.scheme) +
-        "://" +
-        location.hostname +
-        ":" +
-        service.url_port +
-        (service.path || "")
+    service.url_port && (!service.ts_only || onTailnet)
+      ? `${onTailnet ? "https" : service.scheme}://${location.hostname}:${service.url_port}${service.path || ""}`
       : null;
+
   return (
-    <article className="service-card">
-      <div className="service-title">
-        <StateDot status={busy ? "partial" : service.status} />
-        <div className="service-name">
-          <strong>{service.name}</strong>
-          <small>{service.description}</small>
-        </div>
-        <span
-          className={"status-pill " + (STATUS_CLASS[service.status] || "muted")}
+    <div className="service-actions">
+      {url && active && (
+        <a
+          className="button subtle"
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Apri ${service.name}`}
         >
-          {STATUS[service.status] || service.status}
-        </span>
-      </div>
-      <div className="service-stat">
-        <strong>
-          {active && usage != null
-            ? usage.toFixed(1) + "%"
-            : active
-              ? "—"
-              : "OFF"}
-        </strong>
-        <span>{active ? "CPU host" : "Servizio non attivo"}</span>
-      </div>
-      {stats && active && (
-        <div className="service-meta">
-          <span>RAM {formatBytes(stats.mem_bytes)}</span>
-          <span>Uptime {formatDuration(stats.uptime_s)}</span>
-          <span>Riavvii {stats.restarts ?? 0}</span>
-        </div>
+          Apri ↗
+        </a>
       )}
-      <div className="service-actions">
+      <button
+        className={"button " + (active ? "danger" : "primary")}
+        disabled={busy || (active && !service.can_stop)}
+        onClick={() => onAction(service, active ? "stop" : "start")}
+      >
+        {active ? "Arresta" : "Avvia"}
+      </button>
+      {detailed && (
         <button
           className="button subtle"
           disabled={
@@ -116,148 +100,168 @@ function ServiceCard({ service, stats, onAction, busy }) {
         >
           Riavvia
         </button>
-        {url && active && (
-          <a
-            className="button subtle"
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Apri servizio ↗
-          </a>
-        )}
-        <button
-          className={"button " + (active ? "danger" : "primary")}
-          disabled={busy || (active && !service.can_stop)}
-          onClick={() => onAction(service, active ? "stop" : "start")}
-        >
-          {active ? "Arresta" : "Avvia"}
-        </button>
-      </div>
-      {service.containers?.length > 0 && (
-        <details className="container-details">
-          <summary>Container ({service.containers.length})</summary>
-          {service.containers.map((c) => (
-            <div className="container-row" key={c.name}>
-              <StateDot status={c.status} />
-              <span>{c.name}</span>
-              <small>
-                {STATUS[c.status] || c.status}
-                {stats?.containers?.[c.name]?.health
-                  ? " · " + stats.containers[c.name].health
-                  : ""}
-              </small>
-            </div>
-          ))}
-        </details>
       )}
+    </div>
+  );
+}
+
+function ServiceStatus({ service }) {
+  return (
+    <span
+      className={"status-pill " + (STATUS_CLASS[service.status] || "muted")}
+    >
+      {STATUS[service.status] || service.status}
+    </span>
+  );
+}
+
+function ServiceCard({ service, onAction, busy, onDetails }) {
+  return (
+    <article className="service-card" aria-busy={busy}>
+      <ServiceStatus service={service} />
+      <div className="service-name">
+        <h3>
+          <a
+            id={"service-" + service.id}
+            href={"#/services/" + service.id}
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              onDetails(service.id);
+            }}
+          >
+            {service.name}
+          </a>
+        </h3>
+        <p>{service.description}</p>
+      </div>
+      <ServiceActions service={service} onAction={onAction} busy={busy} />
     </article>
   );
 }
 
-export function Overview({ services, stats, backup, network, onNavigate }) {
-  const active = services.filter((s) => s.status === "running").length;
-  const partial = services.filter((s) => s.status === "partial").length;
-  const down = services.length - active - partial;
+export function ServiceDetail({ service, stats, onAction, busy }) {
+  const warnings = (service.containers || []).filter(
+    ({ name, status }) =>
+      ["restarting", "dead"].includes(status) ||
+      (service.status === "partial" && status !== "running") ||
+      stats?.containers?.[name]?.health === "unhealthy",
+  );
   return (
-    <div className="dashboard-grid">
+    <div className="detail-grid" aria-busy={busy}>
       <Card
-        title="Servizi"
-        subtitle={services.length + " gruppi configurati"}
-        action={
-          <button
-            className="text-button"
-            onClick={() => onNavigate("services")}
-          >
-            Tutti i servizi ↗
-          </button>
-        }
+        title="Stato del servizio"
+        action={<ServiceStatus service={service} />}
       >
-        <div className="overview-services">
-          {services.slice(0, 8).map((s) => (
-            <div className="overview-service" key={s.id}>
-              <StateDot status={s.status} />
-              <span>{s.name}</span>
-              <small>{STATUS[s.status] || s.status}</small>
+        <p>{service.description}</p>
+        <ServiceActions
+          service={service}
+          onAction={onAction}
+          busy={busy}
+          detailed
+        />
+        {stats && (
+          <dl className="detail-metrics">
+            <div>
+              <dt>CPU host</dt>
+              <dd>
+                {stats.cpu_host_percent == null
+                  ? "—"
+                  : stats.cpu_host_percent.toFixed(1) + "%"}
+              </dd>
             </div>
-          ))}
-        </div>
-        <div className="summary-strip">
-          <span className="good-text">{active} attivi</span>
-          <span className="warn-text">{partial} parziali</span>
-          <span className="bad-text">{down} fermi</span>
-        </div>
-      </Card>
-      <HostPanel host={stats?.host} />
-      <Card
-        title="Backup"
-        subtitle="Protezione dei dati"
-        action={
-          <button className="text-button" onClick={() => onNavigate("backup")}>
-            Apri backup ↗
-          </button>
-        }
-      >
-        {backup ? (
-          <>
-            <div className="big-stat">
-              {backup.last_backup_at
-                ? formatDate(backup.last_backup_at)
-                : "Nessuna copia"}
+            <div>
+              <dt>RAM</dt>
+              <dd>{formatBytes(stats.mem_bytes)}</dd>
             </div>
-            <p className="muted-copy">
-              {backup.configured
-                ? backup.stale
-                  ? "Attenzione: backup da verificare."
-                  : "Configurazione presente"
-                : "Configurazione incompleta"}
-            </p>
-            {backup.disk && (
-              <div className="status-line">
-                <StateDot status={backup.disk.present ? "running" : "failed"} />
-                {backup.disk.present
-                  ? "Disco backup collegato"
-                  : "Disco backup scollegato"}
-              </div>
-            )}
-          </>
-        ) : (
-          <Empty>Stato backup non disponibile.</Empty>
+            <div>
+              <dt>Tempo di attività</dt>
+              <dd>{formatDuration(stats.uptime_s)}</dd>
+            </div>
+            <div>
+              <dt>Riavvii</dt>
+              <dd>{stats.restarts ?? "—"}</dd>
+            </div>
+          </dl>
         )}
       </Card>
-      <Card
-        title="Rete Tailscale"
-        subtitle="Accesso remoto sicuro"
-        action={
-          <button className="text-button" onClick={() => onNavigate("network")}>
-            Dettagli ↗
-          </button>
-        }
-      >
-        {network ? (
-          <>
-            <div className="status-line">
-              <StateDot
-                status={network.state === "Running" ? "running" : "partial"}
-              />
-              <strong>
-                {network.state === "Running" ? "Connesso" : network.state}
-              </strong>
-            </div>
-            <p className="muted-copy">{network.tailnet || "Rete privata"}</p>
-            {network.https_url && (
-              <a
-                className="external-link"
-                href={network.https_url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {network.https_url}
-              </a>
-            )}
-          </>
+      <Card title="Container associati">
+        {service.containers?.length ? (
+          <ul className="container-list">
+            {service.containers.map((container) => (
+              <li className="container-row" key={container.name}>
+                <StateDot status={container.status} />
+                <span>{container.name}</span>
+                <small>{STATUS[container.status] || container.status}</small>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <Empty>Stato rete non disponibile.</Empty>
+          <Empty>Nessun container associato.</Empty>
+        )}
+      </Card>
+      {warnings.length > 0 && (
+        <Card title="Avvisi" className="service-warnings">
+          <ul>
+            {warnings.map(({ name, status }) => (
+              <li key={name}>
+                {name}:{" "}
+                {stats?.containers?.[name]?.health === "unhealthy"
+                  ? "controllo di salute fallito"
+                  : STATUS[status] || status}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export function ResourcesPage({ stats, services }) {
+  return (
+    <div className="page-stack">
+      <HostPanel host={stats?.host} />
+      <Card title="Consumi per servizio">
+        {stats && services.length ? (
+          <div className="resource-table">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Servizio</th>
+                  <th scope="col">CPU host</th>
+                  <th scope="col">RAM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((service) => {
+                  const usage = stats.services?.[service.id];
+                  return (
+                    <tr key={service.id}>
+                      <th scope="row">
+                        <a href={"#/services/" + service.id}>{service.name}</a>
+                      </th>
+                      <td>
+                        {usage?.cpu_host_percent == null
+                          ? "—"
+                          : usage.cpu_host_percent.toFixed(1) + "%"}
+                      </td>
+                      <td>{formatBytes(usage?.mem_bytes)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty>Consumi dei servizi non disponibili.</Empty>
         )}
       </Card>
     </div>
@@ -266,66 +270,62 @@ export function Overview({ services, stats, backup, network, onNavigate }) {
 
 export function ServicesPage({
   services,
-  stats,
   onAction,
   busyServices,
   modes,
   onMode,
   busyMode,
+  onDetails,
 }) {
-  const regular = services.filter((s) => s.group !== "utility");
-  const utilities = services.filter((s) => s.group === "utility");
+  const groups = [
+    {
+      title: "Servizi",
+      rows: services.filter((service) => service.group !== "utility"),
+    },
+    {
+      title: "Utility",
+      rows: services.filter((service) => service.group === "utility"),
+    },
+  ];
   return (
     <div className="page-stack">
       {modes.length > 0 && (
-        <Card
-          title="Modalità operative"
-          subtitle="Avvio e arresto coordinato dei gruppi"
+        <div
+          className="mode-list service-modes"
+          aria-label="Modalità operative"
         >
-          <div className="mode-list">
-            {modes.map((m) => (
-              <button
-                className="button subtle"
-                key={m.id}
-                disabled={busyMode}
-                title={m.description}
-                onClick={() => onMode(m)}
-              >
-                {m.name}
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
-      <Card title="Servizi" subtitle="Gestione dei container Docker">
-        <div className="service-grid">
-          {regular.map((s) => (
-            <ServiceCard
-              key={s.id}
-              service={s}
-              stats={stats?.services?.[s.id]}
-              busy={busyServices.has(s.id)}
-              onAction={onAction}
-            />
+          {modes.map((mode) => (
+            <button
+              className="button subtle"
+              key={mode.id}
+              disabled={busyMode}
+              title={mode.description}
+              onClick={() => onMode(mode)}
+            >
+              {mode.name}
+            </button>
           ))}
         </div>
-      </Card>
-      {utilities.length > 0 && (
-        <Card title="Utility" subtitle="Servizi di supporto">
-          {
-            <div className="service-grid">
-              {utilities.map((s) => (
-                <ServiceCard
-                  key={s.id}
-                  service={s}
-                  stats={stats?.services?.[s.id]}
-                  busy={busyServices.has(s.id)}
-                  onAction={onAction}
-                />
-              ))}
-            </div>
-          }
-        </Card>
+      )}
+      {!services.length && <Empty>In attesa dell’elenco dei servizi…</Empty>}
+      {groups.map(
+        ({ title, rows }) =>
+          rows.length > 0 && (
+            <section className="service-section" aria-label={title} key={title}>
+              {title === "Utility" && <h2>{title}</h2>}
+              <div className="service-grid">
+                {rows.map((service) => (
+                  <ServiceCard
+                    key={service.id}
+                    service={service}
+                    busy={busyServices.has(service.id)}
+                    onAction={onAction}
+                    onDetails={onDetails}
+                  />
+                ))}
+              </div>
+            </section>
+          ),
       )}
     </div>
   );
