@@ -1255,3 +1255,67 @@ progress.danger {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.card-service-name {
+  margin: 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.login-chart {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.login-chart li {
+  display: grid;
+  grid-template-columns: 5em minmax(0, 1fr) 2em;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+.login-chart strong {
+  text-align: end;
+}
+
+@media (max-width: 760px) {
+  .homeserver-header {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 72px;
+    height: 100dvh;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    padding: 8px 4px;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+  .homeserver-header .home-link strong {
+    position: absolute;
+    clip-path: inset(50%);
+  }
+  .top-nav {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    scrollbar-width: thin;
+  }
+  .top-nav a {
+    flex: 0 0 auto;
+    padding: 0 3px;
+    font-size: 12px;
+  }
+  .work-area {
+    margin-left: 72px;
+  }
+  .work-area .content {
+    padding-inline: 12px;
+  }
+}
+@media (max-width: 480px) {
+  .service-section .service-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

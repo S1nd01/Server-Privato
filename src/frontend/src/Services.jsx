@@ -1,5 +1,5 @@
-import React from "react";
-import { formatBytes, formatDuration } from "./api.js";
+import React, { useEffect, useState } from "react";
+import { api, formatBytes, formatDuration } from "./api.js";
 import {
   Card,
   Empty,
@@ -23,12 +23,15 @@ function HostPanel({ host }) {
     {
       label: "Memoria",
       value: mem,
-      detail: formatBytes(host.mem_used) + " / " + formatBytes(host.mem_total),
+      detail:
+        host.mem_used == null || host.mem_total == null
+          ? "—"
+          : `${formatBytes(host.mem_used)} occupati · ${formatBytes(Math.max(0, host.mem_total - host.mem_used))} disponibili`,
     },
     ...disks.map((d) => ({
       label: "Disco · " + d.label,
       value: d.total ? (d.used / d.total) * 100 : null,
-      detail: formatBytes(d.used) + " / " + formatBytes(d.total),
+      detail: `${formatBytes(d.used)} occupati · ${formatBytes(Math.max(0, d.total - d.used))} disponibili`,
     })),
   ];
   return (
@@ -62,7 +65,13 @@ function HostPanel({ host }) {
   );
 }
 
-function ServiceActions({ service, onAction, busy, detailed = false }) {
+function ServiceActions({
+  service,
+  onAction,
+  busy,
+  detailed = false,
+  children,
+}) {
   const active = service.status === "running" || service.status === "partial";
   const onTailnet = location.hostname.endsWith(".ts.net");
   const url =
@@ -72,7 +81,7 @@ function ServiceActions({ service, onAction, busy, detailed = false }) {
 
   return (
     <div className="service-actions">
-      {url && active && (
+      {detailed && url && active && (
         <a
           className="button subtle"
           href={url}
@@ -101,6 +110,7 @@ function ServiceActions({ service, onAction, busy, detailed = false }) {
           Riavvia
         </button>
       )}
+      {children}
     </div>
   );
 }
@@ -119,30 +129,29 @@ function ServiceCard({ service, onAction, busy, onDetails }) {
   return (
     <article className="service-card" aria-busy={busy}>
       <ServiceStatus service={service} />
-      <div className="service-name">
-        <h3>
-          <a
-            id={"service-" + service.id}
-            href={"#/services/" + service.id}
-            onClick={(event) => {
-              if (
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey
-              )
-                return;
-              event.preventDefault();
-              onDetails(service.id);
-            }}
-          >
-            {service.name}
-          </a>
-        </h3>
-        <p>{service.description}</p>
-      </div>
-      <ServiceActions service={service} onAction={onAction} busy={busy} />
+      <h3 className="card-service-name">{service.name}</h3>
+      <ServiceActions service={service} onAction={onAction} busy={busy}>
+        <a
+          className="button subtle"
+          id={"service-" + service.id}
+          href={"#/services/" + service.id}
+          aria-label={`Dettagli ${service.name}`}
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            event.preventDefault();
+            onDetails(service.id);
+          }}
+        >
+          Dettagli
+        </a>
+      </ServiceActions>
     </article>
   );
 }
@@ -225,9 +234,60 @@ export function ServiceDetail({ service, stats, onAction, busy }) {
   );
 }
 
+function AdminActivity() {
+  const [days, setDays] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api("/session/history", { signal: controller.signal })
+      .then(setDays)
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const maximum = Math.max(1, ...(days || []).map((day) => day.count));
+  return (
+    <Card
+      title="Amministratore"
+      subtitle="Accessi al pannello negli ultimi 7 giorni (UTC)"
+    >
+      {error ? (
+        <Empty>Storico accessi non disponibile.</Empty>
+      ) : !days ? (
+        <Empty>Caricamento storico…</Empty>
+      ) : (
+        <ul className="login-chart">
+          {days.map(({ day, count }) => {
+            const label = new Intl.DateTimeFormat("it-IT", {
+              day: "numeric",
+              month: "short",
+              timeZone: "UTC",
+            }).format(new Date(day));
+            return (
+              <li key={day}>
+                <span>{label}</span>
+                <progress
+                  aria-label={`Accessi del ${label}`}
+                  value={count}
+                  max={maximum}
+                />
+                <strong>{count}</strong>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export function ResourcesPage({ stats, services }) {
   return (
     <div className="page-stack">
+      <AdminActivity />
       <HostPanel host={stats?.host} />
       <Card title="Consumi per servizio">
         {stats && services.length ? (

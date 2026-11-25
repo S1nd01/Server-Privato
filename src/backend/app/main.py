@@ -1,12 +1,15 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
+import logging
+import sqlite3
+
 import anyio.to_thread
 
 from docker.errors import DockerException, NotFound
 from fastapi import Depends, FastAPI, HTTPException
 
-from . import access, backup, desired, stats, tailscale
+from . import access, backup, desired, login_history, stats, tailscale
 from .auth import require_token
 from .dockerutil import get_client as _client
 from .services import MODES, NETWORK_PROVIDERS, SERVICES
@@ -87,6 +90,23 @@ def health():
 @app.get("/api/session")
 def session():
     return {"ok": True}
+
+
+@app.post("/api/session")
+def login():
+    try:
+        login_history.daily_counts(record=True)
+    except sqlite3.Error:
+        logging.getLogger(__name__).warning("Storico accessi non scrivibile", exc_info=True)
+    return {"ok": True}
+
+
+@app.get("/api/session/history")
+def session_history():
+    try:
+        return login_history.daily_counts()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Storico accessi non disponibile") from exc
 
 
 @app.get("/api/services")

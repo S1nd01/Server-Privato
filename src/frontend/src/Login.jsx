@@ -13,7 +13,7 @@ export default function Login({ onLogin, message, help }) {
     setBusy(true);
     setError("");
     setToken(token.trim(), remember);
-    const result = await probe();
+    const result = await probe({ record: true });
     setBusy(false);
     if (result === "ok") {
       setValue("");

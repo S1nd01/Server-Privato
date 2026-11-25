@@ -68,9 +68,9 @@ export async function api(path, options = {}) {
   if (response.status === 204) return null;
   return response.json();
 }
-export async function probe() {
+export async function probe({ record = false } = {}) {
   try {
-    await api("/session");
+    await api("/session", { method: record ? "POST" : "GET" });
     return "ok";
   } catch (error) {
     if (error.status === 401) return "token";

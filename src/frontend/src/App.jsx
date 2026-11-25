@@ -17,7 +17,7 @@ const NAV = [
   { id: "backup", label: "Backup" },
   { id: "network", label: "Rete" },
   { id: "access", label: "Accessi" },
-  { id: "resources", label: "Risorse" },
+  { id: "resources", label: "Admin", title: "Dashboard amministratore" },
 ];
 
 function DashboardApp() {
@@ -371,6 +371,7 @@ function DashboardApp() {
           {NAV.map((item) => (
             <a
               key={item.id}
+              title={item.title}
               href={"#/" + item.id}
               aria-current={page === item.id ? "page" : undefined}
             >
