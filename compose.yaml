@@ -551,8 +551,9 @@ services:
       - "${PIHOLE_DNS_BIND:-127.0.0.1}:53:53/udp"
       - "${PIHOLE_WEB_BIND:-127.0.0.1}:8053:80/tcp"
     networks:
-      - tools    # interfaccia web via Tailscale, aggiornamento delle liste
-      - dns      # per parlare con Unbound (docs/unbound.md)
+      tools:     # interfaccia web via Tailscale, aggiornamento delle liste
+      dns:
+        ipv4_address: 10.89.53.3  # lascia .2 a Unbound anche se Pi-hole parte prima
     labels:
       - autoheal=true
     restart: unless-stopped
@@ -1154,7 +1155,7 @@ services:
       - backup_out
 
 # Rete privata tra Pi-hole e Unbound (indirizzo fisso: Pi-hole accetta come upstream solo un IP).
-# Se 10.89.53.0/28 coincide con una rete tua, cambia i tre indirizzi qui, in unbound/unbound.conf e in src/scripts/pihole-unbound.sh.
+# Se 10.89.53.0/28 coincide con una rete tua, aggiorna la subnet, i due IP statici, unbound/unbound.conf e src/scripts/pihole-unbound.sh.
 networks:
   dns:
     name: homeserver_dns

@@ -39,7 +39,7 @@ Prova da un computer: `nslookup wikipedia.org <IP del server>` risponde; `double
 ## Rete e indirizzi
 
 Unbound sta su una rete Docker privata solo sua e di Pi-hole (`homeserver_dns`, `10.89.53.0/28`), con indirizzo fisso `10.89.53.2`: Pi-hole accetta come upstream solo un indirizzo IP.
-Non pubblica nessuna porta sul computer. Se `10.89.53.0/28` coincide con una rete tua, cambia l'indirizzo in `compose.yaml` (rete `dns` e `ipv4_address`),
+Pi-hole usa `10.89.53.3` sulla stessa rete. Unbound non pubblica nessuna porta sul computer. Se `10.89.53.0/28` coincide con una rete tua, cambia l'indirizzo in `compose.yaml` (rete `dns` e i due `ipv4_address`),
 in `unbound/unbound.conf` (`access-control`) e in `src/scripts/pihole-unbound.sh`.
 
 ## Problemi
